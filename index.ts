@@ -1,8 +1,18 @@
 import { Client, GatewayIntentBits, REST, Routes, SlashCommandBuilder } from 'discord.js';
 import axios from 'axios';
 import dotenv from 'dotenv';
+import http from 'http';
 
 dotenv.config();
+
+// إعداد سيرفر وهمي لفتح الـ Port ومنع Render من إيقاف البوت
+const PORT = process.env.PORT || 3000;
+http.createServer((_, res) => {
+    res.write('Bot is alive!');
+    res.end();
+}).listen(PORT, () => {
+    console.log(`Server listening on port ${PORT}`);
+});
 
 const token = process.env.DISCORD_BOT_TOKEN;
 const difyApiKey = process.env.DIFY_API_KEY;
