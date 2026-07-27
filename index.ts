@@ -14,7 +14,7 @@ http.createServer((_, res) => {
     console.log(`Server listening on port ${PORT}`);
 });
 
-// 2. كود الـ Self-Ping لمنع Render من وضع الخمول (Sleep)
+// 2. كود الـ Self-Ping لمنع Render من وضع الخمول
 const RENDER_URL = process.env.RENDER_EXTERNAL_URL || 'https://discord-bot22-8aow.onrender.com';
 
 setInterval(() => {
@@ -23,7 +23,7 @@ setInterval(() => {
     }).on('error', (err) => {
         console.error('Self-ping failed:', err.message);
     });
-}, 10 * 60 * 1000); // إرسال طلب كل 10 دقائق
+}, 10 * 60 * 1000); // كل 10 دقائق
 
 const token = process.env.DISCORD_BOT_TOKEN;
 const difyApiKey = process.env.DIFY_API_KEY;
@@ -38,11 +38,11 @@ const client = new Client({
     intents: [
         GatewayIntentBits.Guilds,
         GatewayIntentBits.GuildMessages,
-        GatewayIntentBits.MessageContent,
+        GatewayIntentBits.MessageContent, // ضروري لقراءة محتوى الرسائل والمنشنات
     ],
 });
 
-// استخدام الحدث الجاهز مع ميزة حماية الأخطاء
+// تسجيل الأوامر والتنبيه عند التشغيل + تشغيل نظام الـ 24 ساعة
 client.once('clientReady', async (readyClient) => {
     console.log(`Logged in as ${readyClient.user.tag}!`);
 
@@ -69,47 +69,100 @@ client.once('clientReady', async (readyClient) => {
     } catch (error) {
         console.error('Error registering slash commands:', error);
     }
+
+    // 3. نظام الـ 24 ساعة للروم المحدد
+    initDailyTask(readyClient);
 });
 
+// دالة موحدة لإرسال الطلبات إلى Dify
+async function sendQueryToDify(prompt: string, userId: string): Promise<string> {
+    try {
+        const response = await axios.post(
+            `${difyBaseUrl}/chat-messages`,
+            {
+                inputs: {},
+                query: prompt,
+                response_mode: 'blocking',
+                user: userId,
+            },
+            {
+                headers: {
+                    'Authorization': `Bearer ${difyApiKey}`,
+                    'Content-Type': 'application/json',
+                },
+                timeout: 25000
+            }
+        );
+
+        let answer = response.data.answer || 'No response received from Dify.';
+        if (answer.length > 2000) {
+            answer = answer.substring(0, 1990) + '...\n*(الرد مقصوص لكبر الحجم)*';
+        }
+        return answer;
+    } catch (error: any) {
+        console.error('Dify API Error:', error.response?.data || error.message);
+        return 'عذراً، حدث خطأ أثناء الاتصال بالذكاء الاصطناعي.';
+    }
+}
+
+// دالة الـ 24 ساعة للروم المطلوب
+function initDailyTask(botClient: Client) {
+    const TARGET_CHANNEL_ID = '1459632620416532554';
+    const TWENTY_FOUR_HOURS = 24 * 60 * 60 * 1000;
+
+    setInterval(async () => {
+        try {
+            const channel = await botClient.channels.fetch(TARGET_CHANNEL_ID);
+            if (channel && channel.isTextBased()) {
+                // جلب آخر رسالة في الروم عشان يشوف وش السالفة أو الرد عليها
+                const messages = await channel.messages.fetch({ limit: 1 });
+                const lastMessage = messages.first();
+                
+                let dailyPrompt = '';
+                if (lastMessage && !lastMessage.author.bot) {
+                    dailyPrompt = `هذي آخر رسالة انكتبت في الروم من العضو (${lastMessage.author.username}): "${lastMessage.content}". ابدأ السالفة أو اعلق عليها بطريقتك المعتادة (أو اطرح موضوع جديد ومنوع وحماسي للشباب لو ما عجبتك السالفة)، وخل ردك عفوي ومباشر بدون مقدمات طويلة.`;
+                } else {
+                    dailyPrompt = "اطرح موضوع نقاش منوع وحماسي أو سالفة جديدة تسلي الشباب في السيرفر اليوم بشكل عفوي ومباشر.";
+                }
+
+                const answer = await sendQueryToDify(dailyPrompt, 'daily_cron_system');
+                await channel.send(answer);
+                console.log('Daily automated message sent successfully!');
+            }
+        } catch (error) {
+            console.error('Error in daily cron task:', error);
+        }
+    }, TWENTY_FOUR_HOURS);
+}
+
+// 1. التعامل مع أمر /ask
 client.on('interactionCreate', async interaction => {
     if (!interaction.isChatInputCommand()) return;
 
     if (interaction.commandName === 'ask') {
         const prompt = interaction.options.getString('prompt', true);
-        
-        // التفاعل مع المستخدم فوراً لتجنب خطأ الـ 3 ثواني من ديسكورد
         await interaction.deferReply();
 
-        try {
-            const response = await axios.post(
-                `${difyBaseUrl}/chat-messages`,
-                {
-                    inputs: {},
-                    query: prompt,
-                    response_mode: 'blocking',
-                    user: interaction.user.id,
-                },
-                {
-                    headers: {
-                        'Authorization': `Bearer ${difyApiKey}`,
-                        'Content-Type': 'application/json',
-                    },
-                    timeout: 25000 // المهلة القصوى لانتظار Dify (25 ثانية)
-                }
-            );
+        const answer = await sendQueryToDify(prompt, interaction.user.id);
+        await interaction.editReply(answer);
+    }
+});
 
-            const answer = response.data.answer || 'No response received from Dify.';
-            
-            // التعامل مع الأجوبة الطويلة
-            if (answer.length > 2000) {
-                await interaction.editReply(answer.substring(0, 1990) + '...\n*(الرد مقصوص لكبر الحجم)*');
-            } else {
-                await interaction.editReply(answer);
-            }
-        } catch (error: any) {
-            console.error('Dify API Error:', error.response?.data || error.message);
-            await interaction.editReply('Sorry, an error occurred while communicating with the AI.');
+// 2. التعامل مع المنشن المباشر في أي روم
+client.on('messageCreate', async message => {
+    if (message.author.bot) return;
+
+    if (message.mentions.has(client.user!)) {
+        const cleanPrompt = message.content.replace(new RegExp(`@!*${client.user!.id}`, 'g'), '').trim();
+        
+        if (!cleanPrompt) {
+            await message.reply('هلا بك يا أبو حرب! آمرني وش بغيت؟ 🤍');
+            return;
         }
+
+        await message.channel.sendTyping();
+        const answer = await sendQueryToDify(cleanPrompt, message.author.id);
+        await message.reply(answer);
     }
 });
 
