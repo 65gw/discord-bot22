@@ -5,41 +5,52 @@ import http from 'http';
 
 dotenv.config();
 
-// حماية البوت من الكراش والطفي المفاجئ عند حدوث أي خطأ غير متوقع
+// ==========================================
+// 1. نظام الحماية الفولاذي من الكراش والطفي
+// ==========================================
 process.on('unhandledRejection', (reason, promise) => {
-    console.error('Unhandled Rejection at:', promise, 'reason:', reason);
+    console.error(' [حماية] Unhandled Rejection:', reason);
 });
 
 process.on('uncaughtException', (err) => {
-    console.error('Uncaught Exception thrown:', err);
+    console.error(' [حماية] Uncaught Exception:', err);
 });
 
-// 1. إعداد سيرفر وهمي لفتح الـ Port لـ Render
+// ==========================================
+// 2. سيرفر الويب لخدمة Render و UptimeRobot (يقبل 200 OK)
+// ==========================================
 const PORT = process.env.PORT || 3000;
-http.createServer((_, res) => {
-    res.write('Bot is alive!');
+http.createServer((req, res) => {
+    res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8' });
+    res.write('Bot is 100% Alive and Running!');
     res.end();
 }).listen(PORT, () => {
-    console.log(`Server listening on port ${PORT}`);
+    console.log(` [Server] Web server listening on port ${PORT}`);
 });
 
-// 2. كود الـ Self-Ping لمنع Render من وضع الخمول
+// ==========================================
+// 3. نظام الـ Self-Ping المطور (يدعم HTTPS)
+// ==========================================
 const RENDER_URL = process.env.RENDER_EXTERNAL_URL || 'https://discord-bot22-8aow.onrender.com';
 
-setInterval(() => {
-    http.get(RENDER_URL, (res) => {
-        console.log(`Self-ping status code: ${res.statusCode}`);
-    }).on('error', (err) => {
-        console.error('Self-ping failed:', err.message);
-    });
-}, 10 * 60 * 1000); // كل 10 دقائق
+setInterval(async () => {
+    try {
+        await axios.get(RENDER_URL, { timeout: 10000 });
+        console.log(' [Keep-Alive] Self-ping successful!');
+    } catch (err: any) {
+        console.error(' [Keep-Alive] Self-ping failed:', err.message);
+    }
+}, 8 * 60 * 1000); // ينغز السيرفر كل 8 دقائق لضمان عدم النوم
 
+// ==========================================
+// 4. إعدادات الديسكورد و Dify
+// ==========================================
 const token = process.env.DISCORD_BOT_TOKEN;
 const difyApiKey = process.env.DIFY_API_KEY;
 const difyBaseUrl = process.env.DIFY_API_BASE_URL || 'https://api.dify.ai/v1';
 
 if (!token || !difyApiKey) {
-    console.error('Error: DISCORD_BOT_TOKEN or DIFY_API_KEY is missing in .env file.');
+    console.error(' Error: DISCORD_BOT_TOKEN or DIFY_API_KEY is missing in .env');
     process.exit(1);
 }
 
@@ -47,13 +58,17 @@ const client = new Client({
     intents: [
         GatewayIntentBits.Guilds,
         GatewayIntentBits.GuildMessages,
-        GatewayIntentBits.MessageContent, // ضروري لقراءة محتوى الرسائل والمنشنات
+        GatewayIntentBits.MessageContent,
     ],
 });
 
-// تسجيل الأوامر والتنبيه عند التشغيل + تشغيل نظام الـ 24 ساعة
-client.once('clientReady', async (readyClient) => {
-    console.log(`Logged in as ${readyClient.user.tag}!`);
+let isDailyTaskInitialized = false;
+
+// ==========================================
+// 5. تسجيل الأوامر والتشغيل الأولي
+// ==========================================
+client.once('ready', async (readyClient) => {
+    console.log(` Logged in as ${readyClient.user.tag}!`);
 
     const commands = [
         new SlashCommandBuilder()
@@ -69,7 +84,7 @@ client.once('clientReady', async (readyClient) => {
     const rest = new REST({ version: '10' }).setToken(token);
 
     try {
-        console.log('Started refreshing application (/) commands.');
+        console.log('Refreshing application (/) commands...');
         await rest.put(
             Routes.applicationCommands(readyClient.user.id),
             { body: commands },
@@ -79,11 +94,16 @@ client.once('clientReady', async (readyClient) => {
         console.error('Error registering slash commands:', error);
     }
 
-    // تشغيل التنبيه اليومي
-    initDailyTask(readyClient);
+    // تشغيل التنبيه اليومي مرة واحدة فقط لمنع استهلاك الذاكرة
+    if (!isDailyTaskInitialized) {
+        initDailyTask(readyClient);
+        isDailyTaskInitialized = true;
+    }
 });
 
-// دالة موحدة لإرسال الطلبات إلى Dify
+// ==========================================
+// 6. دالة الاتصال بـ Dify API
+// ==========================================
 async function sendQueryToDify(prompt: string, userId: string): Promise<string> {
     try {
         const response = await axios.post(
@@ -103,18 +123,20 @@ async function sendQueryToDify(prompt: string, userId: string): Promise<string> 
             }
         );
 
-        let answer = response.data.answer || 'No response received from Dify.';
+        let answer = response.data.answer || 'لم يتم استلام رد من الذكاء الاصطناعي.';
         if (answer.length > 2000) {
             answer = answer.substring(0, 1990) + '...\n*(الرد مقصوص لكبر الحجم)*';
         }
         return answer;
     } catch (error: any) {
         console.error('Dify API Error:', error.response?.data || error.message);
-        return 'عذراً، حدث خطأ أثناء الاتصال بالذكاء الاصطناعي.';
+        return 'عذراً، حدث خطأ مؤقت أثناء الاتصال بالذكاء الاصطناعي.';
     }
 }
 
-// دالة الـ 24 ساعة للروم المحدد
+// ==========================================
+// 7. دالة الـ 24 ساعة للروم المحدد
+// ==========================================
 function initDailyTask(botClient: Client) {
     const TARGET_CHANNEL_ID = '1459632620416532554';
     const TWENTY_FOUR_HOURS = 24 * 60 * 60 * 1000;
@@ -143,7 +165,9 @@ function initDailyTask(botClient: Client) {
     }, TWENTY_FOUR_HOURS);
 }
 
-// 1. التعامل مع أمر /ask
+// ==========================================
+// 8. التعامل مع الأوامر والمنشن
+// ==========================================
 client.on('interactionCreate', async interaction => {
     if (!interaction.isChatInputCommand()) return;
 
@@ -156,13 +180,11 @@ client.on('interactionCreate', async interaction => {
     }
 });
 
-// 2. التعامل مع المنشن المباشر في أي روم (مع حماية Try/Catch)
 client.on('messageCreate', async message => {
     try {
         if (message.author.bot) return;
 
         if (client.user && message.mentions.has(client.user)) {
-            // تنظيف المنشن بأسلوب ديسكورد الصحيح <@ID> أو <@!ID>
             const mentionRegex = new RegExp(`<@!?${client.user.id}>`, 'g');
             const cleanPrompt = message.content.replace(mentionRegex, '').trim();
             
@@ -180,4 +202,5 @@ client.on('messageCreate', async message => {
     }
 });
 
+// تسجيل الدخول للديسكورد
 client.login(token);
