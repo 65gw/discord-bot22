@@ -5,7 +5,7 @@ import http from 'http';
 
 dotenv.config();
 
-// إعداد سيرفر وهمي لفتح الـ Port ومنع Render من إيقاف البوت
+// 1. إعداد سيرفر وهمي لفتح الـ Port لـ Render
 const PORT = process.env.PORT || 3000;
 http.createServer((_, res) => {
     res.write('Bot is alive!');
@@ -13,6 +13,17 @@ http.createServer((_, res) => {
 }).listen(PORT, () => {
     console.log(`Server listening on port ${PORT}`);
 });
+
+// 2. كود الـ Self-Ping لمنع Render من وضع الخمول (Sleep)
+const RENDER_URL = process.env.RENDER_EXTERNAL_URL || 'https://discord-bot22-8aow.onrender.com';
+
+setInterval(() => {
+    http.get(RENDER_URL, (res) => {
+        console.log(`Self-ping status code: ${res.statusCode}`);
+    }).on('error', (err) => {
+        console.error('Self-ping failed:', err.message);
+    });
+}, 10 * 60 * 1000); // إرسال طلب كل 10 دقائق
 
 const token = process.env.DISCORD_BOT_TOKEN;
 const difyApiKey = process.env.DIFY_API_KEY;
@@ -31,8 +42,9 @@ const client = new Client({
     ],
 });
 
-client.once('ready', async () => {
-    console.log(`Logged in as ${client.user?.tag}!`);
+// استخدام الحدث الجاهز مع ميزة حماية الأخطاء
+client.once('clientReady', async (readyClient) => {
+    console.log(`Logged in as ${readyClient.user.tag}!`);
 
     const commands = [
         new SlashCommandBuilder()
@@ -50,12 +62,12 @@ client.once('ready', async () => {
     try {
         console.log('Started refreshing application (/) commands.');
         await rest.put(
-            Routes.applicationCommands(client.user!.id),
+            Routes.applicationCommands(readyClient.user.id),
             { body: commands },
         );
         console.log('Successfully reloaded application (/) commands.');
     } catch (error) {
-        console.error(error);
+        console.error('Error registering slash commands:', error);
     }
 });
 
@@ -64,6 +76,8 @@ client.on('interactionCreate', async interaction => {
 
     if (interaction.commandName === 'ask') {
         const prompt = interaction.options.getString('prompt', true);
+        
+        // التفاعل مع المستخدم فوراً لتجنب خطأ الـ 3 ثواني من ديسكورد
         await interaction.deferReply();
 
         try {
@@ -80,12 +94,15 @@ client.on('interactionCreate', async interaction => {
                         'Authorization': `Bearer ${difyApiKey}`,
                         'Content-Type': 'application/json',
                     },
+                    timeout: 25000 // المهلة القصوى لانتظار Dify (25 ثانية)
                 }
             );
 
             const answer = response.data.answer || 'No response received from Dify.';
+            
+            // التعامل مع الأجوبة الطويلة
             if (answer.length > 2000) {
-                await interaction.editReply(answer.substring(0, 2000));
+                await interaction.editReply(answer.substring(0, 1990) + '...\n*(الرد مقصوص لكبر الحجم)*');
             } else {
                 await interaction.editReply(answer);
             }
