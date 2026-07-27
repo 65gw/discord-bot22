@@ -5,6 +5,15 @@ import http from 'http';
 
 dotenv.config();
 
+// حماية البوت من الكراش والطفي المفاجئ عند حدوث أي خطأ غير متوقع
+process.on('unhandledRejection', (reason, promise) => {
+    console.error('Unhandled Rejection at:', promise, 'reason:', reason);
+});
+
+process.on('uncaughtException', (err) => {
+    console.error('Uncaught Exception thrown:', err);
+});
+
 // 1. إعداد سيرفر وهمي لفتح الـ Port لـ Render
 const PORT = process.env.PORT || 3000;
 http.createServer((_, res) => {
@@ -70,7 +79,7 @@ client.once('clientReady', async (readyClient) => {
         console.error('Error registering slash commands:', error);
     }
 
-    // 3. نظام الـ 24 ساعة للروم المحدد
+    // تشغيل التنبيه اليومي
     initDailyTask(readyClient);
 });
 
@@ -105,7 +114,7 @@ async function sendQueryToDify(prompt: string, userId: string): Promise<string> 
     }
 }
 
-// دالة الـ 24 ساعة للروم المطلوب
+// دالة الـ 24 ساعة للروم المحدد
 function initDailyTask(botClient: Client) {
     const TARGET_CHANNEL_ID = '1459632620416532554';
     const TWENTY_FOUR_HOURS = 24 * 60 * 60 * 1000;
@@ -114,7 +123,6 @@ function initDailyTask(botClient: Client) {
         try {
             const channel = await botClient.channels.fetch(TARGET_CHANNEL_ID);
             if (channel && channel.isTextBased()) {
-                // جلب آخر رسالة في الروم عشان يشوف وش السالفة أو الرد عليها
                 const messages = await channel.messages.fetch({ limit: 1 });
                 const lastMessage = messages.first();
                 
@@ -148,21 +156,27 @@ client.on('interactionCreate', async interaction => {
     }
 });
 
-// 2. التعامل مع المنشن المباشر في أي روم
+// 2. التعامل مع المنشن المباشر في أي روم (مع حماية Try/Catch)
 client.on('messageCreate', async message => {
-    if (message.author.bot) return;
+    try {
+        if (message.author.bot) return;
 
-    if (message.mentions.has(client.user!)) {
-        const cleanPrompt = message.content.replace(new RegExp(`@!*${client.user!.id}`, 'g'), '').trim();
-        
-        if (!cleanPrompt) {
-            await message.reply('هلا بك يا أبو حرب! آمرني وش بغيت؟ 🤍');
-            return;
+        if (client.user && message.mentions.has(client.user)) {
+            // تنظيف المنشن بأسلوب ديسكورد الصحيح <@ID> أو <@!ID>
+            const mentionRegex = new RegExp(`<@!?${client.user.id}>`, 'g');
+            const cleanPrompt = message.content.replace(mentionRegex, '').trim();
+            
+            if (!cleanPrompt) {
+                await message.reply('هلا بك يا أبو حرب! آمرني وش بغيت؟ 🤍');
+                return;
+            }
+
+            await message.channel.sendTyping();
+            const answer = await sendQueryToDify(cleanPrompt, message.author.id);
+            await message.reply(answer);
         }
-
-        await message.channel.sendTyping();
-        const answer = await sendQueryToDify(cleanPrompt, message.author.id);
-        await message.reply(answer);
+    } catch (error) {
+        console.error('Error handling messageCreate:', error);
     }
 });
 
