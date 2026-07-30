@@ -43,22 +43,24 @@ setInterval(async () => {
 }, 8 * 60 * 1000);
 
 // ==========================================
-// 4. قراءة المفاتيح المفصلة كلاً على حدة
+// 4. قراءة المفاتيح المفصلة من Render (الـ 5 مفاتيح)
 // ==========================================
 const token = process.env.DISCORD_BOT_TOKEN;
 const difyBaseUrl = process.env.DIFY_API_BASE_URL || 'https://api.dify.ai/v1';
 
-// تجميع المفاتيح المنفصلة من Render
+// قراءة المفاتيح المطابقة تماماً لأسماء المتغيرات في Render
 const difyApiKeys = [
-    process.env.DIFY_KEY_1,
-    process.env.DIFY_KEY_2,
-    process.env.DIFY_KEY_3
+    process.env.DIFY_API_KEY1,
+    process.env.DIFY_API_KEYS2,
+    process.env.DIFY_API_KEYS3,
+    process.env.DIFY_API_KEYS4,
+    process.env.DIFY_API_KEYS5,
 ].filter((key): key is string => Boolean(key && key.trim().length > 0));
 
 let currentKeyIndex = 0;
 
 if (!token || difyApiKeys.length === 0) {
-    console.error(' Error: DISCORD_BOT_TOKEN or DIFY_KEY_1/2/3 is missing in Render!');
+    console.error(' Error: DISCORD_BOT_TOKEN or DIFY_API_KEYS is missing in Render!');
     process.exit(1);
 }
 
@@ -75,7 +77,7 @@ const client = new Client({
 let isPeriodicTaskInitialized = false;
 
 // ==========================================
-// 5. تسجيل الأوامر
+// 5. تسجيل الأوامر والتشغيل الأولي
 // ==========================================
 client.once('ready', async (readyClient) => {
     console.log(` Logged in as ${readyClient.user.tag}!`);
@@ -111,7 +113,7 @@ client.once('ready', async (readyClient) => {
 });
 
 // ==========================================
-// 6. الاتصال والتداول المنفصل
+// 6. الاتصال والتداول المنفصل والـ Fallback
 // ==========================================
 async function sendQueryToDify(prompt: string, userId: string): Promise<string> {
     const totalKeys = difyApiKeys.length;
@@ -121,6 +123,7 @@ async function sendQueryToDify(prompt: string, userId: string): Promise<string> 
         const keyToUse = difyApiKeys[currentKeyIndex];
         const keyNumber = currentKeyIndex + 1;
 
+        // الانتقال للمفتاح التالي بالتدوير التلقائي
         currentKeyIndex = (currentKeyIndex + 1) % totalKeys;
 
         try {
@@ -162,7 +165,7 @@ async function sendQueryToDify(prompt: string, userId: string): Promise<string> 
 }
 
 // ==========================================
-// 7. دالة الـ 3 ساعات
+// 7. دالة الـ 3 ساعات للروم المحدد
 // ==========================================
 function initPeriodicTask(botClient: Client) {
     const TARGET_CHANNEL_ID = '1459632620416532554';
@@ -196,7 +199,7 @@ function initPeriodicTask(botClient: Client) {
 }
 
 // ==========================================
-// 8. الأحداث
+// 8. التعامل مع الأوامر والمنشن
 // ==========================================
 client.on('interactionCreate', async interaction => {
     if (!interaction.isChatInputCommand()) return;
