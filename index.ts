@@ -29,7 +29,7 @@ http.createServer((req, res) => {
 });
 
 // ==========================================
-// 3. نظام الـ Self-Ping
+// 3. نظام الـ Self-Ping لمنع خمول Render
 // ==========================================
 const RENDER_URL = process.env.RENDER_EXTERNAL_URL || 'https://discord-bot22-8aow.onrender.com';
 
@@ -48,7 +48,7 @@ setInterval(async () => {
 const token = process.env.DISCORD_BOT_TOKEN;
 const difyBaseUrl = process.env.DIFY_API_BASE_URL || 'https://api.dify.ai/v1';
 
-// قراءة المفاتيح المطابقة تماماً لأسماء المتغيرات في Render
+// قراءة المفاتيح المطابقة تماماً لأسماء المتغيرات الموجودة في Render
 const difyApiKeys = [
     process.env.DIFY_API_KEY1,
     process.env.DIFY_API_KEYS2,
@@ -161,7 +161,7 @@ async function sendQueryToDify(prompt: string, userId: string): Promise<string> 
     }
 
     console.error(` [Dify] All ${totalKeys} separate keys failed.`);
-    return 'يوجد خطا';
+    return 'يوجد خطا في الاتصال بالنظام، يرجى المحاولة لاحقاً.';
 }
 
 // ==========================================
@@ -187,7 +187,7 @@ function initPeriodicTask(botClient: Client) {
 
                 const answer = await sendQueryToDify(randomPrompt, 'cron_3h_system');
                 
-                if (answer !== 'يوجد خطا') {
+                if (answer !== 'يوجد خطا في الاتصال بالنظام، يرجى المحاولة لاحقاً.') {
                     await channel.send(answer);
                     console.log('Automated 3-hour message sent successfully!');
                 }
