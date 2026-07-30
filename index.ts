@@ -62,7 +62,7 @@ const client = new Client({
     ],
 });
 
-let isDailyTaskInitialized = false;
+let isPeriodicTaskInitialized = false;
 
 // ==========================================
 // 5. تسجيل الأوامر والتشغيل الأولي
@@ -94,10 +94,10 @@ client.once('ready', async (readyClient) => {
         console.error('Error registering slash commands:', error);
     }
 
-    // تشغيل التنبيه اليومي مرة واحدة فقط لمنع استهلاك الذاكرة
-    if (!isDailyTaskInitialized) {
-        initDailyTask(readyClient);
-        isDailyTaskInitialized = true;
+    // تشغيل التنبيه المجدول مرة واحدة عند إقلاع البوت
+    if (!isPeriodicTaskInitialized) {
+        initPeriodicTask(readyClient);
+        isPeriodicTaskInitialized = true;
     }
 });
 
@@ -135,11 +135,11 @@ async function sendQueryToDify(prompt: string, userId: string): Promise<string> 
 }
 
 // ==========================================
-// 7. دالة الـ 24 ساعة للروم المحدد
+// 7. دالة الـ 6 ساعات للروم المحدد (سوالف عشوائية)
 // ==========================================
-function initDailyTask(botClient: Client) {
+function initPeriodicTask(botClient: Client) {
     const TARGET_CHANNEL_ID = '1459632620416532554';
-    const TWENTY_FOUR_HOURS = 24 * 60 * 60 * 1000;
+    const SIX_HOURS = 6 * 60 * 60 * 1000; // كل 6 ساعات
 
     setInterval(async () => {
         try {
@@ -148,21 +148,21 @@ function initDailyTask(botClient: Client) {
                 const messages = await channel.messages.fetch({ limit: 1 });
                 const lastMessage = messages.first();
                 
-                let dailyPrompt = '';
+                let randomPrompt = '';
                 if (lastMessage && !lastMessage.author.bot) {
-                    dailyPrompt = `هذي آخر رسالة انكتبت في الروم من العضو (${lastMessage.author.username}): "${lastMessage.content}". ابدأ السالفة أو اعلق عليها بطريقتك المعتادة (أو اطرح موضوع جديد ومنوع وحماسي للشباب لو ما عجبتك السالفة)، وخل ردك عفوي ومباشر بدون مقدمات طويلة.`;
+                    randomPrompt = `هذي آخر رسالة انكتبت بالروم من العضو (${lastMessage.author.username}): "${lastMessage.content}". علق عليها بأسلوبك السلس أو اطرح موضوع عشوائي جديد وفلة وسؤال حماسي للشباب بالروم بدون مقدمات رسمية.`;
                 } else {
-                    dailyPrompt = "اطرح موضوع نقاش منوع وحماسي أو سالفة جديدة تسلي الشباب في السيرفر اليوم بشكل عفوي ومباشر.";
+                    randomPrompt = "اطرح موضوع نقاش عشوائي ممتع أو سؤال فلة وحماسي للشباب في سيرفر الديسكورد بأسلوبك العفوي وبدون مقدمات رسمية.";
                 }
 
-                const answer = await sendQueryToDify(dailyPrompt, 'daily_cron_system');
+                const answer = await sendQueryToDify(randomPrompt, 'cron_6h_system');
                 await channel.send(answer);
-                console.log('Daily automated message sent successfully!');
+                console.log('Automated 6-hour message sent successfully!');
             }
         } catch (error) {
-            console.error('Error in daily cron task:', error);
+            console.error('Error in 6-hour periodic task:', error);
         }
-    }, TWENTY_FOUR_HOURS);
+    }, SIX_HOURS);
 }
 
 // ==========================================
@@ -189,7 +189,7 @@ client.on('messageCreate', async message => {
             const cleanPrompt = message.content.replace(mentionRegex, '').trim();
             
             if (!cleanPrompt) {
-                await message.reply('هلا بك يا أبو حرب! آمرني وش بغيت؟ 🤍');
+                await message.reply('هلا بك! آمرني وش بغيت؟ 🤍');
                 return;
             }
 
