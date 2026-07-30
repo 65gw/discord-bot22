@@ -102,9 +102,9 @@ client.once('ready', async (readyClient) => {
 });
 
 // ==========================================
-// 6. دالة الاتصال بـ Dify API
+// 6. دالة الاتصال بـ Dify API (صامتة عند الخطأ)
 // ==========================================
-async function sendQueryToDify(prompt: string, userId: string): Promise<string> {
+async function sendQueryToDify(prompt: string, userId: string): Promise<string | null> {
     try {
         const response = await axios.post(
             `${difyBaseUrl}/chat-messages`,
@@ -123,23 +123,24 @@ async function sendQueryToDify(prompt: string, userId: string): Promise<string> 
             }
         );
 
-        let answer = response.data.answer || 'لم يتم استلام رد من الذكاء الاصطناعي.';
-        if (answer.length > 2000) {
+        let answer = response.data.answer || null;
+        if (answer && answer.length > 2000) {
             answer = answer.substring(0, 1990) + '...\n*(الرد مقصوص لكبر الحجم)*';
         }
         return answer;
     } catch (error: any) {
+        // طباعة الخطأ في السيرفر فقط بدون إرجاع نص خطأ للديسكورد
         console.error('Dify API Error:', error.response?.data || error.message);
-        return 'عذراً، حدث خطأ مؤقت أثناء الاتصال بالذكاء الاصطناعي.';
+        return null;
     }
 }
 
 // ==========================================
-// 7. دالة الـ 30 ثانية للروم المحدد (اختبار التكرار)
+// 7. دالة الـ 3 ساعات للروم المحدد (سوالف عشوائية)
 // ==========================================
 function initPeriodicTask(botClient: Client) {
     const TARGET_CHANNEL_ID = '1459632620416532554';
-    const THIRTY_SECONDS = 30 * 1000; // كل 30 ثانية
+    const THREE_HOURS = 3 * 60 * 60 * 1000; // كل 3 ساعات
 
     setInterval(async () => {
         try {
@@ -155,14 +156,20 @@ function initPeriodicTask(botClient: Client) {
                     randomPrompt = "اطرح موضوع نقاش عشوائي ممتع أو سؤال فلة وحماسي للشباب في سيرفر الديسكورد بأسلوبك العفوي وبدون مقدمات رسمية.";
                 }
 
-                const answer = await sendQueryToDify(randomPrompt, 'cron_test_system');
-                await channel.send(answer);
-                console.log('Automated 30-second message sent successfully!');
+                const answer = await sendQueryToDify(randomPrompt, 'cron_3h_system');
+                
+                // الإرسال فقط إذا نجح الذكاء الاصطناعي في إرجاع رد
+                if (answer) {
+                    await channel.send(answer);
+                    console.log('Automated 3-hour message sent successfully!');
+                } else {
+                    console.log('تم تجاهل الإرسال التلقائي بسبب عدم استجابة Dify (تم الحفاظ على هدوء الروم).');
+                }
             }
         } catch (error) {
-            console.error('Error in 30-second periodic task:', error);
+            console.error('Error in 3-hour periodic task:', error);
         }
-    }, THIRTY_SECONDS);
+    }, THREE_HOURS);
 }
 
 // ==========================================
@@ -176,7 +183,11 @@ client.on('interactionCreate', async interaction => {
         await interaction.deferReply();
 
         const answer = await sendQueryToDify(prompt, interaction.user.id);
-        await interaction.editReply(answer);
+        if (answer) {
+            await interaction.editReply(answer);
+        } else {
+            await interaction.deleteReply().catch(() => {});
+        }
     }
 });
 
@@ -195,7 +206,11 @@ client.on('messageCreate', async message => {
 
             await message.channel.sendTyping();
             const answer = await sendQueryToDify(cleanPrompt, message.author.id);
-            await message.reply(answer);
+            
+            // رد فقط إذا كان هناك رد سليم
+            if (answer) {
+                await message.reply(answer);
+            }
         }
     } catch (error) {
         console.error('Error handling messageCreate:', error);
