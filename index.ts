@@ -6,7 +6,7 @@ import http from 'http';
 dotenv.config();
 
 // ==========================================
-// 1. نظام الحماية الفولاذي من الكراش والطفي
+// 1. نظام الحماية الفولاذي من الكراش
 // ==========================================
 process.on('unhandledRejection', (reason, promise) => {
     console.error(' [حماية] Unhandled Rejection:', reason);
@@ -17,7 +17,7 @@ process.on('uncaughtException', (err) => {
 });
 
 // ==========================================
-// 2. سيرفر الويب لخدمة Render و UptimeRobot
+// 2. سيرفر الويب لخدمة Render
 // ==========================================
 const PORT = process.env.PORT || 3000;
 http.createServer((req, res) => {
@@ -29,7 +29,7 @@ http.createServer((req, res) => {
 });
 
 // ==========================================
-// 3. نظام الـ Self-Ping المطور
+// 3. نظام الـ Self-Ping
 // ==========================================
 const RENDER_URL = process.env.RENDER_EXTERNAL_URL || 'https://discord-bot22-8aow.onrender.com';
 
@@ -43,23 +43,26 @@ setInterval(async () => {
 }, 8 * 60 * 1000);
 
 // ==========================================
-// 4. قراءة المفاتيح بأمان من متغيرات البيئة (Render)
+// 4. قراءة المفاتيح المفصلة كلاً على حدة
 // ==========================================
 const token = process.env.DISCORD_BOT_TOKEN;
 const difyBaseUrl = process.env.DIFY_API_BASE_URL || 'https://api.dify.ai/v1';
 
-// قراءة قائمة المفاتيح من المتغير DIFY_API_KEYS (مفصولة بفاصلة)
-const rawKeys = process.env.DIFY_API_KEYS || process.env.DIFY_API_KEY || '';
-const difyApiKeys = rawKeys.split(',').map(key => key.trim()).filter(key => key.length > 0);
+// تجميع المفاتيح المنفصلة من Render
+const difyApiKeys = [
+    process.env.DIFY_KEY_1,
+    process.env.DIFY_KEY_2,
+    process.env.DIFY_KEY_3
+].filter((key): key is string => Boolean(key && key.trim().length > 0));
 
-let currentKeyIndex = 0; // مؤشر التدوير المنتظم
+let currentKeyIndex = 0;
 
 if (!token || difyApiKeys.length === 0) {
-    console.error(' Error: DISCORD_BOT_TOKEN or DIFY_API_KEYS is missing in Environment Variables!');
+    console.error(' Error: DISCORD_BOT_TOKEN or DIFY_KEY_1/2/3 is missing in Render!');
     process.exit(1);
 }
 
-console.log(` [Dify] Loaded ${difyApiKeys.length} API key(s) securely for rotation.`);
+console.log(` [Dify] Loaded ${difyApiKeys.length} separate API key(s) successfully.`);
 
 const client = new Client({
     intents: [
@@ -72,7 +75,7 @@ const client = new Client({
 let isPeriodicTaskInitialized = false;
 
 // ==========================================
-// 5. تسجيل الأوامر والتشغيل الأولي
+// 5. تسجيل الأوامر
 // ==========================================
 client.once('ready', async (readyClient) => {
     console.log(` Logged in as ${readyClient.user.tag}!`);
@@ -108,7 +111,7 @@ client.once('ready', async (readyClient) => {
 });
 
 // ==========================================
-// 6. دالة الاتصال مع التدوير الحلقي والتعامل مع الأخطاء
+// 6. الاتصال والتداول المنفصل
 // ==========================================
 async function sendQueryToDify(prompt: string, userId: string): Promise<string> {
     const totalKeys = difyApiKeys.length;
@@ -118,11 +121,10 @@ async function sendQueryToDify(prompt: string, userId: string): Promise<string> 
         const keyToUse = difyApiKeys[currentKeyIndex];
         const keyNumber = currentKeyIndex + 1;
 
-        // الانتقال للمفتاح التالي بالدوران (0 -> 1 -> 2 -> 3 -> 0)
         currentKeyIndex = (currentKeyIndex + 1) % totalKeys;
 
         try {
-            console.log(` [Dify] Trying API Key #${keyNumber}...`);
+            console.log(` [Dify] Trying Separate Key #${keyNumber}...`);
             const response = await axios.post(
                 `${difyBaseUrl}/chat-messages`,
                 {
@@ -145,23 +147,22 @@ async function sendQueryToDify(prompt: string, userId: string): Promise<string> 
                 if (answer.length > 2000) {
                     answer = answer.substring(0, 1990) + '...\n*(الرد مقصوص لكبر الحجم)*';
                 }
-                console.log(` [Dify] Success using Key #${keyNumber}!`);
-                return answer; // نجاح الحصول على إجابة
+                console.log(` [Dify] Success using Separate Key #${keyNumber}!`);
+                return answer;
             }
         } catch (error: any) {
-            console.error(` [Dify] Key #${keyNumber} failed:`, error.response?.data?.message || error.message);
+            console.error(` [Dify] Separate Key #${keyNumber} failed:`, error.response?.data?.message || error.message);
         }
 
         attempts++;
     }
 
-    // إذا فشلت جميع المفاتيح المتاحة:
-    console.error(` [Dify] All ${totalKeys} API Keys failed.`);
+    console.error(` [Dify] All ${totalKeys} separate keys failed.`);
     return 'يوجد خطا';
 }
 
 // ==========================================
-// 7. دالة الـ 3 ساعات للروم المحدد
+// 7. دالة الـ 3 ساعات
 // ==========================================
 function initPeriodicTask(botClient: Client) {
     const TARGET_CHANNEL_ID = '1459632620416532554';
@@ -195,7 +196,7 @@ function initPeriodicTask(botClient: Client) {
 }
 
 // ==========================================
-// 8. التعامل مع الأوامر والمنشن
+// 8. الأحداث
 // ==========================================
 client.on('interactionCreate', async interaction => {
     if (!interaction.isChatInputCommand()) return;
