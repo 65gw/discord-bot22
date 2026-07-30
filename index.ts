@@ -135,11 +135,11 @@ async function sendQueryToDify(prompt: string, userId: string): Promise<string> 
 }
 
 // ==========================================
-// 7. دالة الـ 6 ساعات للروم المحدد (سوالف عشوائية)
+// 7. دالة الـ 30 ثانية للروم المحدد (اختبار التكرار)
 // ==========================================
 function initPeriodicTask(botClient: Client) {
     const TARGET_CHANNEL_ID = '1459632620416532554';
-    const SIX_HOURS = 6 * 60 * 60 * 1000; // كل 6 ساعات
+    const THIRTY_SECONDS = 30 * 1000; // كل 30 ثانية
 
     setInterval(async () => {
         try {
@@ -155,14 +155,14 @@ function initPeriodicTask(botClient: Client) {
                     randomPrompt = "اطرح موضوع نقاش عشوائي ممتع أو سؤال فلة وحماسي للشباب في سيرفر الديسكورد بأسلوبك العفوي وبدون مقدمات رسمية.";
                 }
 
-                const answer = await sendQueryToDify(randomPrompt, 'cron_6h_system');
+                const answer = await sendQueryToDify(randomPrompt, 'cron_test_system');
                 await channel.send(answer);
-                console.log('Automated 6-hour message sent successfully!');
+                console.log('Automated 30-second message sent successfully!');
             }
         } catch (error) {
-            console.error('Error in 6-hour periodic task:', error);
+            console.error('Error in 30-second periodic task:', error);
         }
-    }, SIX_HOURS);
+    }, THIRTY_SECONDS);
 }
 
 // ==========================================
