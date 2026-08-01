@@ -165,37 +165,31 @@ async function sendQueryToDify(prompt: string, userId: string): Promise<string> 
 }
 
 // ==========================================
-// 7. دالة الـ 3 ساعات للروم المحدد
+// 7. دالة الـ 12 ساعة للروم المحدد (موضوع عشوائي)
 // ==========================================
 function initPeriodicTask(botClient: Client) {
     const TARGET_CHANNEL_ID = '1459632620416532554';
-    const THREE_HOURS = 3 * 60 * 60 * 1000;
+    const TWELVE_HOURS = 12 * 60 * 60 * 1000;
 
     setInterval(async () => {
         try {
             const channel = await botClient.channels.fetch(TARGET_CHANNEL_ID);
             if (channel && channel.isTextBased()) {
-                const messages = await channel.messages.fetch({ limit: 1 });
-                const lastMessage = messages.first();
                 
-                let randomPrompt = '';
-                if (lastMessage && !lastMessage.author.bot) {
-                    randomPrompt = `هذي آخر رسالة انكتبت بالروم من العضو (${lastMessage.author.username}): "${lastMessage.content}". علق عليها بأسلوبك السلس أو اطرح موضوع عشوائي جديد وفلة وسؤال حماسي للشباب بالروم بدون مقدمات رسمية.`;
-                } else {
-                    randomPrompt = "اطرح موضوع نقاش عشوائي ممتع أو سؤال فلة وحماسي للشباب في سيرفر الديسكورد بأسلوبك العفوي وبدون مقدمات رسمية.";
-                }
+                // برومبت عشوائي تماماً وبدون النظر للرسائل السابقة
+                const randomPrompt = "اطرح موضوع نقاش عشوائي تماماً وممتع، أو سؤال فلة وحماسي للشباب في سيرفر الديسكورد بأسلوبك العفوي والسلس وبدون أي مقدمات رسمية.";
 
-                const answer = await sendQueryToDify(randomPrompt, 'cron_3h_system');
+                const answer = await sendQueryToDify(randomPrompt, 'cron_12h_system');
                 
                 if (answer !== 'يوجد خطا في الاتصال بالنظام، يرجى المحاولة لاحقاً.') {
                     await channel.send(answer);
-                    console.log('Automated 3-hour message sent successfully!');
+                    console.log('Automated 12-hour message sent successfully!');
                 }
             }
         } catch (error) {
-            console.error('Error in 3-hour periodic task:', error);
+            console.error('Error in 12-hour periodic task:', error);
         }
-    }, THREE_HOURS);
+    }, TWELVE_HOURS);
 }
 
 // ==========================================
