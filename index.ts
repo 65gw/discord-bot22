@@ -48,7 +48,8 @@ setInterval(async () => {
 const token = process.env.DISCORD_BOT_TOKEN;
 const difyBaseUrl = process.env.DIFY_API_BASE_URL || 'https://api.dify.ai/v1';
 
-// قراءة المفاتيح المطابقة تماماً لأسماء المتغيرات الموجودة في Render
+const TARGET_CHANNEL_ID = '1459632620416532554'; // روم النقاش الرئيسي للشباب
+
 const difyApiKeys = [
     process.env.DIFY_API_KEY1,
     process.env.DIFY_API_KEYS2,
@@ -123,7 +124,6 @@ async function sendQueryToDify(prompt: string, userId: string): Promise<string> 
         const keyToUse = difyApiKeys[currentKeyIndex];
         const keyNumber = currentKeyIndex + 1;
 
-        // الانتقال للمفتاح التالي بالتدوير التلقائي
         currentKeyIndex = (currentKeyIndex + 1) % totalKeys;
 
         try {
@@ -165,10 +165,9 @@ async function sendQueryToDify(prompt: string, userId: string): Promise<string> 
 }
 
 // ==========================================
-// 7. دالة الـ 12 ساعة للروم المحدد (موضوع عشوائي)
+// 7. دالة الـ 12 ساعة لتغيير الأفكار ومنع الشاهي
 // ==========================================
 function initPeriodicTask(botClient: Client) {
-    const TARGET_CHANNEL_ID = '1459632620416532554';
     const TWELVE_HOURS = 12 * 60 * 60 * 1000;
 
     setInterval(async () => {
@@ -176,8 +175,11 @@ function initPeriodicTask(botClient: Client) {
             const channel = await botClient.channels.fetch(TARGET_CHANNEL_ID);
             if (channel && channel.isTextBased()) {
                 
-                // برومبت عشوائي تماماً وبدون النظر للرسائل السابقة
-                const randomPrompt = "اطرح موضوع نقاش عشوائي تماماً وممتع، أو سؤال فلة وحماسي للشباب في سيرفر الديسكورد بأسلوبك العفوي والسلس وبدون أي مقدمات رسمية.";
+                const randomPrompt = `اطرح سؤال أو موضوع نقاش عشوائي تماماً وفلة للشباب في السيرفر بأسلوب عالي العفوية. 
+ملاحظات مهمة جداً:
+- ممنوع نهائياً تسأل عن الشاهي، القهوة، أو الروتين اليومي المكرر!
+- اختر موضوعاً مفاجئاً (مثل: ألعاب، مواقف محتارة، لو خيروك، تكنولوجيا، سيارات، سيناريوهات غريبة وعجيبة).
+- التزم بأسلوب الشاب الرهيب بكلمات بسيطة وبدون أي مقدمات أو سلام رسميات.`;
 
                 const answer = await sendQueryToDify(randomPrompt, 'cron_12h_system');
                 
@@ -193,7 +195,7 @@ function initPeriodicTask(botClient: Client) {
 }
 
 // ==========================================
-// 8. التعامل مع الأوامر والمنشن
+// 8. التعامل مع الأوامر، السلام، والرسائل بالروم
 // ==========================================
 client.on('interactionCreate', async interaction => {
     if (!interaction.isChatInputCommand()) return;
@@ -209,19 +211,41 @@ client.on('interactionCreate', async interaction => {
 
 client.on('messageCreate', async message => {
     try {
+        // تجاهل رسائل البوتات نفسها
         if (message.author.bot) return;
 
-        if (client.user && message.mentions.has(client.user)) {
-            const mentionRegex = new RegExp(`<@!?${client.user.id}>`, 'g');
-            const cleanPrompt = message.content.replace(mentionRegex, '').trim();
-            
+        const contentLower = message.content.trim().toLowerCase();
+
+        // 1️⃣ الرد التلقائي السريع على السلام
+        const isGreeting = ['السلام عليكم', 'سلام عليكم', 'السلام عليكم ورحمة الله', 'سلام عليكم ورحمة الله وبركاته'].some(g => contentLower.includes(g.toLowerCase()));
+
+        if (isGreeting) {
+            await message.reply('وعليكم السلام، ارحب!');
+            return;
+        }
+
+        // 2️⃣ الرد المباشر إذا كتب أحد في الروم المخصص أو سواه منشن
+        const isTargetChannel = message.channelId === TARGET_CHANNEL_ID;
+        const isMentioned = client.user && message.mentions.has(client.user);
+
+        if (isTargetChannel || isMentioned) {
+            let cleanPrompt = message.content;
+            if (client.user) {
+                const mentionRegex = new RegExp(`<@!?${client.user.id}>`, 'g');
+                cleanPrompt = cleanPrompt.replace(mentionRegex, '').trim();
+            }
+
             if (!cleanPrompt) {
                 await message.reply('هلا بك! آمرني وش بغيت؟ 🤍');
                 return;
             }
 
             await message.channel.sendTyping();
-            const answer = await sendQueryToDify(cleanPrompt, message.author.id);
+            
+            // إضافة سياق الاسم عشان يعرف مين اللي يكلمه بالروم
+            const promptWithUser = `العضو (${message.author.username}) يقول لك: "${cleanPrompt}". رد عليه بأسلوبك العفوي كخوي معه بالروم.`;
+            
+            const answer = await sendQueryToDify(promptWithUser, message.author.id);
             await message.reply(answer);
         }
     } catch (error) {
