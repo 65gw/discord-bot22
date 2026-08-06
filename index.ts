@@ -49,7 +49,8 @@ const token = process.env.DISCORD_BOT_TOKEN;
 const difyBaseUrl = process.env.DIFY_API_BASE_URL || 'https://api.dify.ai/v1';
 
 const TARGET_CHANNEL_ID = '1459632620416532554'; // روم النقاش الرئيسي
-const VIP_USERNAME = process.env.VIP_USERNAME; // سحب اسم اليوزر بأمان من Render
+const VIP_USERNAME = process.env.VIP_USERNAME; // يوزر 65gw
+const VIP_USER_ID = process.env.VIP_USER_ID; // آيدي أبو حرب لتحديد المنشن
 
 const difyApiKeys = [
     process.env.DIFY_API_KEY1,
@@ -196,7 +197,7 @@ function initPeriodicTask(botClient: Client) {
 }
 
 // ==========================================
-// 8. التعامل مع الأوامر والتفاعل الذكي
+// 8. التعامل مع الأوامر، المنشن، والسلام
 // ==========================================
 client.on('interactionCreate', async interaction => {
     if (!interaction.isChatInputCommand()) return;
@@ -215,27 +216,33 @@ client.on('messageCreate', async message => {
         if (message.author.bot) return;
 
         const contentLower = message.content.trim().toLowerCase();
-        
-        // التحقق الآمن: هل المرسل هو صاحب الحساب المميز؟
-        const isVIP = VIP_USERNAME && message.author.username.toLowerCase() === VIP_USERNAME.toLowerCase();
+        const isVIP = (VIP_USERNAME && message.author.username.toLowerCase() === VIP_USERNAME.toLowerCase()) || 
+                      (VIP_USER_ID && message.author.id === VIP_USER_ID);
 
-        // 1️⃣ الرد التلقائي على السلام
+        // 🎯 1️⃣ رد تلقائي عند منشن أبو حرب: لو أحد سوى منشن لأبو حرب بالروم
+        const mentionedVip = VIP_USER_ID && message.mentions.users.has(VIP_USER_ID);
+        if (mentionedVip && !isVIP) {
+            await message.reply('أخذت موعد منه ولا لا؟ 🤔');
+            return;
+        }
+
+        // 2️⃣ الرد التلقائي على السلام
         const isGreeting = ['السلام عليكم', 'سلام عليكم', 'السلام عليكم ورحمة الله', 'سلام عليكم ورحمة الله وبركاته'].some(g => contentLower.includes(g.toLowerCase()));
 
         if (isGreeting) {
             if (isVIP) {
-                await message.reply('وعليكم السلام ورحمة الله وبركاته، ارحب يا الغالي! نورت السيرفر 👑🤍');
+                await message.reply('وعليكم السلام ورحمة الله وبركاته، ارحب يا أبو حرب! نورت السيرفر 👑🤍');
             } else {
                 await message.reply('وعليكم السلام، ارحب!');
             }
             return;
         }
 
-        // 2️⃣ الرد المباشر في الروم المخصص أو المنشن
+        // 3️⃣ الرد المباشر في الروم المخصص أو منشن البوت نفسه
         const isTargetChannel = message.channelId === TARGET_CHANNEL_ID;
-        const isMentioned = client.user && message.mentions.has(client.user);
+        const isBotMentioned = client.user && message.mentions.has(client.user);
 
-        if (isTargetChannel || isMentioned) {
+        if (isTargetChannel || isBotMentioned) {
             let cleanPrompt = message.content;
             if (client.user) {
                 const mentionRegex = new RegExp(`<@!?${client.user.id}>`, 'g');
@@ -244,7 +251,7 @@ client.on('messageCreate', async message => {
 
             if (!cleanPrompt) {
                 if (isVIP) {
-                    await message.reply('سم وامرني، تحت أمرك وش بغيت؟ 👑');
+                    await message.reply('سم وامرني يا أبو حرب، تحت أمرك وش بغيت؟ 👑');
                 } else {
                     await message.reply('هلا بك! آمرني وش بغيت؟ 🤍');
                 }
@@ -255,7 +262,7 @@ client.on('messageCreate', async message => {
             
             let promptWithUser = '';
             if (isVIP) {
-                promptWithUser = `المستخدم هو المسؤول الأول ورئيس السيرفر وكبيرنا بالروم، يرسل لك: "${cleanPrompt}". رد عليه بمنتهى الاحترام والهيبة والتقدير (استخدم عبارات مثل: سم، أبشر، على راسي، تأمر أمر)، وبأسلوب راقي وسلس.`;
+                promptWithUser = `المستخدم اسمه (أبو حرب) وهو راعي السيرفر وكبيرنا بالروم، يرسل لك: "${cleanPrompt}". رد عليه بمنتهى الاحترام وناده دائماً بلقب (أبو حرب) واستخدم عبارات مثل (سم يا أبو حرب، أبشر، على راسي، تأمر أمر)، وبأسلوب راقي وسلس.`;
             } else {
                 promptWithUser = `العضو (${message.author.username}) يقول لك: "${cleanPrompt}". رد عليه بأسلوبك العفوي كخوي معه بالروم.`;
             }
