@@ -219,11 +219,19 @@ client.on('messageCreate', async message => {
         const isVIP = (VIP_USERNAME && message.author.username.toLowerCase() === VIP_USERNAME.toLowerCase()) || 
                       (VIP_USER_ID && message.author.id === VIP_USER_ID);
 
-        // 🎯 1️⃣ رد تلقائي عند منشن أبو حرب: لو أحد سوى منشن لأبو حرب بالروم
+        // 🎯 1️⃣ رد تلقائي وعشوائي عند منشن أبو حرب (تشتغل قبل أي شيء)
         const mentionedVip = VIP_USER_ID && message.mentions.users.has(VIP_USER_ID);
         if (mentionedVip && !isVIP) {
-            await message.reply('أخذت موعد منه ولا لا؟ 🤔');
-            return;
+            const vipReplies = [
+                'سم وش تبي من ابو حرب؟ 🤔',
+                'لا تكلم عمك قبل تاخذ موعد ✋🛑',
+                'هلا انا نائبه وش تبي؟ 🫡'
+            ];
+            // اختيار رد عشوائي من القائمة
+            const randomReply = vipReplies[Math.floor(Math.random() * vipReplies.length)];
+            
+            await message.reply(randomReply);
+            return; // إيقاف تنفيذ بقية الكود فوراً
         }
 
         // 2️⃣ الرد التلقائي على السلام
