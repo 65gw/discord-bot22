@@ -167,33 +167,33 @@ async function sendQueryToDify(prompt: string, userId: string): Promise<string> 
 }
 
 // ==========================================
-// 7. دالة الـ 12 ساعة التلقائية
+// 7. دالة الـ 8 ساعات التلقائية
 // ==========================================
 function initPeriodicTask(botClient: Client) {
-    const TWELVE_HOURS = 12 * 60 * 60 * 1000;
+    const EIGHT_HOURS = 8 * 60 * 60 * 1000; // تم التعديل إلى 8 ساعات
 
     setInterval(async () => {
         try {
             const channel = await botClient.channels.fetch(TARGET_CHANNEL_ID);
             if (channel && channel.isTextBased()) {
                 
-                const randomPrompt = `اطرح سؤال أو موضوع نقاش عشوائي تماماً وفلة للشباب في السيرفر بأسلوب عالي العفوية. 
-ملاحظات مهمة جداً:
-- ممنوع نهائياً تسأل عن الشاهي، القهوة، أو الروتين اليومي المكرر!
-- اختر موضوعاً مفاجئاً (مثل: ألعاب، مواقف محتارة، لو خيروك، تكنولوجيا، سيارات، سيناريوهات غريبة وعجيبة).
-- التزم بأسلوب الشاب الرهيب بكلمات بسيطة وبدون أي مقدمات أو سلام رسميات.`;
+                const randomPrompt = `افتح موضوعاً عشوائياً وشاطحاً تماماً مع الشباب في السيرفر.
+ملاحظات صارمة:
+- ممنوع كلياً الكلام عن (قطع البي سي، البي سي، الشاهي، القهوة، أو الروتين اليومي).
+- اختر موضوعاً غريباً أو شطحة عشوائية جداً من أي مكان بالدنيا (مواقف، سيناريوهات غريبة، ألعاب، تخيلات، مواقف مضحكة).
+- ادخل في الموضوع مباشرة بأسلوب شاب عفوي بدون سلام ولا مقدمات ولا فلسفة الذكاء الاصطناعي.`;
 
-                const answer = await sendQueryToDify(randomPrompt, 'cron_12h_system');
+                const answer = await sendQueryToDify(randomPrompt, 'cron_8h_system');
                 
                 if (answer !== 'يوجد خطا في الاتصال بالنظام، يرجى المحاولة لاحقاً.') {
                     await channel.send(answer);
-                    console.log('Automated 12-hour message sent successfully!');
+                    console.log('Automated 8-hour message sent successfully!');
                 }
             }
         } catch (error) {
-            console.error('Error in 12-hour periodic task:', error);
+            console.error('Error in 8-hour periodic task:', error);
         }
-    }, TWELVE_HOURS);
+    }, EIGHT_HOURS);
 }
 
 // ==========================================
@@ -219,7 +219,7 @@ client.on('messageCreate', async message => {
         const isVIP = (VIP_USERNAME && message.author.username.toLowerCase() === VIP_USERNAME.toLowerCase()) || 
                       (VIP_USER_ID && message.author.id === VIP_USER_ID);
 
-        // 🎯 1️⃣ رد تلقائي وعشوائي عند منشن أبو حرب (تشتغل قبل أي شيء)
+        // 🎯 1️⃣ رد تلقائي وعشوائي عند منشن أبو حرب
         const mentionedVip = VIP_USER_ID && message.mentions.users.has(VIP_USER_ID);
         if (mentionedVip && !isVIP) {
             const vipReplies = [
@@ -227,11 +227,9 @@ client.on('messageCreate', async message => {
                 'لا تكلم عمك قبل تاخذ موعد ✋🛑',
                 'هلا انا نائبه وش تبي؟ 🫡'
             ];
-            // اختيار رد عشوائي من القائمة
             const randomReply = vipReplies[Math.floor(Math.random() * vipReplies.length)];
-            
             await message.reply(randomReply);
-            return; // إيقاف تنفيذ بقية الكود فوراً
+            return;
         }
 
         // 2️⃣ الرد التلقائي على السلام
@@ -270,9 +268,14 @@ client.on('messageCreate', async message => {
             
             let promptWithUser = '';
             if (isVIP) {
-                promptWithUser = `المستخدم اسمه (أبو حرب) وهو راعي السيرفر وكبيرنا بالروم، يرسل لك: "${cleanPrompt}". رد عليه بمنتهى الاحترام وناده دائماً بلقب (أبو حرب) واستخدم عبارات مثل (سم يا أبو حرب، أبشر، على راسي، تأمر أمر)، وبأسلوب راقي وسلس.`;
+                promptWithUser = `المستخدم هو (أبو حرب) راعي السيرفر وكبيرنا بالروم، يرسل لك: "${cleanPrompt}". 
+رد عليه بمنتهى الاحترام وهيبة ولقبه دائماً بـ (أبو حرب) واستخدم عبارات تقدير، واجعل كلامك موجزاً ومباشراً بدون فلسفة زايدة.`;
             } else {
-                promptWithUser = `العضو (${message.author.username}) يقول لك: "${cleanPrompt}". رد عليه بأسلوبك العفوي كخوي معه بالروم.`;
+                promptWithUser = `العضو (${message.author.username}) يقول لك: "${cleanPrompt}".
+تعليمات التعامل والشخصية:
+1. أنت خوي معهم بالسيرفر وترد بعفوية وسرعة.
+2. إذا كان كلام العضو عادي أو سؤال طبيعي: رد عليه عادي بأسلوب خوي وسولف معه باختصار.
+3. إذا حسيت إن كلامه فيه (طقطقة عليك، مسخرة، استهزاء، استظراف، أو ضحك عليك): أفصل عليه فوراً! زبّد له واجلده بأسلوب شرس وطقطق عليه ورده لمكانه وبدون أي احترام!`;
             }
 
             const answer = await sendQueryToDify(promptWithUser, message.author.id);
