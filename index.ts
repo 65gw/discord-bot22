@@ -43,12 +43,13 @@ setInterval(async () => {
 }, 8 * 60 * 1000);
 
 // ==========================================
-// 4. قراءة المفاتيح المفصلة من Render (الـ 5 مفاتيح)
+// 4. قراءة المفاتيح المتغيرة من Render
 // ==========================================
 const token = process.env.DISCORD_BOT_TOKEN;
 const difyBaseUrl = process.env.DIFY_API_BASE_URL || 'https://api.dify.ai/v1';
 
-const TARGET_CHANNEL_ID = '1459632620416532554'; // روم النقاش الرئيسي للشباب
+const TARGET_CHANNEL_ID = '1459632620416532554'; // روم النقاش الرئيسي
+const VIP_USERNAME = process.env.VIP_USERNAME; // سحب اسم اليوزر بأمان من Render
 
 const difyApiKeys = [
     process.env.DIFY_API_KEY1,
@@ -165,7 +166,7 @@ async function sendQueryToDify(prompt: string, userId: string): Promise<string> 
 }
 
 // ==========================================
-// 7. دالة الـ 12 ساعة لتغيير الأفكار ومنع الشاهي
+// 7. دالة الـ 12 ساعة التلقائية
 // ==========================================
 function initPeriodicTask(botClient: Client) {
     const TWELVE_HOURS = 12 * 60 * 60 * 1000;
@@ -195,7 +196,7 @@ function initPeriodicTask(botClient: Client) {
 }
 
 // ==========================================
-// 8. التعامل مع الأوامر، السلام، والرسائل بالروم
+// 8. التعامل مع الأوامر والتفاعل الذكي
 // ==========================================
 client.on('interactionCreate', async interaction => {
     if (!interaction.isChatInputCommand()) return;
@@ -211,20 +212,26 @@ client.on('interactionCreate', async interaction => {
 
 client.on('messageCreate', async message => {
     try {
-        // تجاهل رسائل البوتات نفسها
         if (message.author.bot) return;
 
         const contentLower = message.content.trim().toLowerCase();
+        
+        // التحقق الآمن: هل المرسل هو صاحب الحساب المميز؟
+        const isVIP = VIP_USERNAME && message.author.username.toLowerCase() === VIP_USERNAME.toLowerCase();
 
-        // 1️⃣ الرد التلقائي السريع على السلام
+        // 1️⃣ الرد التلقائي على السلام
         const isGreeting = ['السلام عليكم', 'سلام عليكم', 'السلام عليكم ورحمة الله', 'سلام عليكم ورحمة الله وبركاته'].some(g => contentLower.includes(g.toLowerCase()));
 
         if (isGreeting) {
-            await message.reply('وعليكم السلام، ارحب!');
+            if (isVIP) {
+                await message.reply('وعليكم السلام ورحمة الله وبركاته، ارحب يا الغالي! نورت السيرفر 👑🤍');
+            } else {
+                await message.reply('وعليكم السلام، ارحب!');
+            }
             return;
         }
 
-        // 2️⃣ الرد المباشر إذا كتب أحد في الروم المخصص أو سواه منشن
+        // 2️⃣ الرد المباشر في الروم المخصص أو المنشن
         const isTargetChannel = message.channelId === TARGET_CHANNEL_ID;
         const isMentioned = client.user && message.mentions.has(client.user);
 
@@ -236,15 +243,23 @@ client.on('messageCreate', async message => {
             }
 
             if (!cleanPrompt) {
-                await message.reply('هلا بك! آمرني وش بغيت؟ 🤍');
+                if (isVIP) {
+                    await message.reply('سم وامرني، تحت أمرك وش بغيت؟ 👑');
+                } else {
+                    await message.reply('هلا بك! آمرني وش بغيت؟ 🤍');
+                }
                 return;
             }
 
             await message.channel.sendTyping();
             
-            // إضافة سياق الاسم عشان يعرف مين اللي يكلمه بالروم
-            const promptWithUser = `العضو (${message.author.username}) يقول لك: "${cleanPrompt}". رد عليه بأسلوبك العفوي كخوي معه بالروم.`;
-            
+            let promptWithUser = '';
+            if (isVIP) {
+                promptWithUser = `المستخدم هو المسؤول الأول ورئيس السيرفر وكبيرنا بالروم، يرسل لك: "${cleanPrompt}". رد عليه بمنتهى الاحترام والهيبة والتقدير (استخدم عبارات مثل: سم، أبشر، على راسي، تأمر أمر)، وبأسلوب راقي وسلس.`;
+            } else {
+                promptWithUser = `العضو (${message.author.username}) يقول لك: "${cleanPrompt}". رد عليه بأسلوبك العفوي كخوي معه بالروم.`;
+            }
+
             const answer = await sendQueryToDify(promptWithUser, message.author.id);
             await message.reply(answer);
         }
