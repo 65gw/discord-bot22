@@ -196,13 +196,12 @@ client.once('ready', async (readyClient) => {
 });
 
 // ==========================================
-// 6. الاتصال بـ Dify مع معالجة حماية الصور
+// 6. الاتصال بـ Dify مع دعم الـ Vision
 // ==========================================
 async function sendQueryToDify(prompt: string, userId: string, imageUrl?: string): Promise<string> {
     const totalKeys = difyApiKeys.length;
     let attempts = 0;
 
-    // تجهيز المصفوفة فقط في حال وجود صورة وتجاوب Dify معها
     const files = imageUrl ? [
         {
             type: 'image',
@@ -250,7 +249,6 @@ async function sendQueryToDify(prompt: string, userId: string, imageUrl?: string
         } catch (error: any) {
             console.error(` [Dify Error Key ${currentKeyIndex}]:`, error.response?.data || error.message);
             
-            // في حال فشل Dify بسبب الصورة، نعيد المحاولة كطلب نصي فقط بدون الصورة
             if (files.length > 0) {
                 try {
                     const fallbackResponse = await axios.post(
@@ -391,7 +389,7 @@ client.on('interactionCreate', async interaction => {
 });
 
 // ==========================================
-// 9. معالجة الرسائل والافتارات
+// 9. معالجة الرسائل والافتارات والستيكرات
 // ==========================================
 client.on('messageCreate', async message => {
     try {
@@ -424,19 +422,27 @@ client.on('messageCreate', async message => {
             }
 
             let targetImageUrl: string | undefined = undefined;
+            let imageTypeContext = '';
 
-            if (message.attachments.size > 0) {
-                targetImageUrl = message.attachments.first()?.url;
+            // 1. إذا كان ستيكر (Sticker)
+            if (message.stickers.size > 0) {
+                const sticker = message.stickers.first();
+                targetImageUrl = `https://media.discordapp.net/stickers/${sticker?.id}.png`;
+                imageTypeContext = `[نوع المرفق: ستيكر دسكورد تعبيري بعنوان "${sticker?.name}"]`;
+            }
+            // 2. إذا كان مرفق (صورة أو GIF)
+            else if (message.attachments.size > 0) {
+                const attachment = message.attachments.first();
+                targetImageUrl = attachment?.url;
+                const isGif = attachment?.contentType?.includes('gif') || attachment?.url.endsWith('.gif');
+                imageTypeContext = isGif ? `[نوع المرفق: صورة متحركة GIF]` : `[نوع المرفق: صورة مرفقة بالشات]`;
             } 
-            else if (message.stickers.size > 0) {
-                targetImageUrl = `https://media.discordapp.net/stickers/${message.stickers.first()?.id}.png`;
-            } 
-            else if (cleanPrompt.includes('افتار') || cleanPrompt.includes('الافتار') || cleanPrompt.includes('صورة')) {
+            // 3. إذا كان طلب أفتار (Avatar)
+            else if (cleanPrompt.includes('افتار') || cleanPrompt.includes('الافتار') || cleanPrompt.includes('صورة الحساب')) {
                 const mentionedUser = message.mentions.users.first();
                 const targetUser = mentionedUser || message.author;
-                
-                // جلب رابط الصورة بصيغة PNG صريحة ومباشرة لتوافق Dify
                 targetImageUrl = targetUser.displayAvatarURL({ extension: 'png', size: 512, forceStatic: true });
+                imageTypeContext = `[نوع المرفق: أفتار (صورة البروفايل) للمستخدم ${targetUser.username}]`;
             }
 
             if (!cleanPrompt && !targetImageUrl) {
@@ -446,15 +452,17 @@ client.on('messageCreate', async message => {
 
             await message.channel.sendTyping();
 
+            // تعليمات ذكية تحدد طريقة التفاعل حسب نوع المرفق
             const strictInstructions = `
 [القواعد الأساسية للرد]
-1. إذا سأل المستخدم عن برمجة/أكواد/تقنية: اشرح بأسلوب تقني مفصل وشامل.
-2. السوالف العامة واليومية: اختصر جداً في سطر أو سطرين فقط بدون إطالة.
-3. التصدّي للإساءة والطقطقة: إذا طقطق أحد أو هاجمك، رد عليه بأسلوب طقطقة وسخرية ملجمة.
-4. المستثنى الوحيد: المستخدم (أبو حرب / VIP)، تعامل معه باحترام كامل ودون طقطقة.
+1. لا تقم بوصف الصورة جافاً إلا إذا طُلِب منك تقييمها أو وصفها.
+2. إذا كان المرفق (ستيكر أو GIF): تفاعل معه كرد فعل كُوميدي أو طقطقة مناسبة مع سياق المحادثة بدون رسميات.
+3. إذا كان المرفق (أفتار): أعط رأيك وطقطقتك بأسلوب ساخر على أفتار المستخدم (إلا إذا كان أبو حربVIP فامتدحه باحترام).
+4. السوالف العامة: اختصر الرد في سطر أو سطرين فقط. البرمجة والتقنية: اشرح بأسلوب تقني مفصل.
+5. المستثنى الوحيد: المستخدم (أبو حرب / VIP)، تعامل معه باحترام كامل ودون طقطقة.
             `;
 
-            const fullPrompt = `${strictInstructions}\nالمستخدم (${message.author.username}): ${cleanPrompt}`;
+            const fullPrompt = `${strictInstructions}\n${imageTypeContext}\nالمستخدم (${message.author.username}): ${cleanPrompt || 'أرسل هذا المرفق كـ رد فعل'}`;
 
             const answer = await sendQueryToDify(fullPrompt, message.author.id, targetImageUrl);
             await message.reply(answer);
