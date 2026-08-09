@@ -1,4 +1,4 @@
-import { Client, GatewayIntentBits, REST, Routes, SlashCommandBuilder, PermissionFlagsBits } from 'discord.js';
+import { Client, GatewayIntentBits, REST, Routes, SlashCommandBuilder } from 'discord.js';
 import axios from 'axios';
 import dotenv from 'dotenv';
 import http from 'http';
@@ -8,7 +8,7 @@ dotenv.config();
 // ==========================================
 // 1. نظام الحماية الفولاذي من الكراش
 // ==========================================
-process.on('unhandledRejection', (reason, promise) => {
+process.on('unhandledRejection', (reason) => {
     console.error(' [حماية] Unhandled Rejection:', reason);
 });
 
@@ -43,7 +43,7 @@ setInterval(async () => {
 }, 8 * 60 * 1000);
 
 // ==========================================
-// 4. قراءة المفاتيح وإعدادات الإعدادات المتغيرة
+// 4. قراءة المفاتيح وإعدادات المتغيرات
 // ==========================================
 const token = process.env.DISCORD_BOT_TOKEN;
 const difyBaseUrl = process.env.DIFY_API_BASE_URL || 'https://api.dify.ai/v1';
@@ -62,10 +62,10 @@ const difyApiKeys = [
 
 let currentKeyIndex = 0;
 
-// متغيرات التحكم بالحالة (State Management)
-let isAutoTopicsEnabled = true; // تشغيل/إيقاف المواضيع التلقائية
-let humanModeEnabled = true; // نمط المحاكاة البشرية (واقعي)
-let roastLevel: 'mild' | 'medium' | 'savage' = 'savage'; // مستوى الجلد والزبدة
+// متغيرات التحكم بالحالة
+let isAutoTopicsEnabled = true; 
+let humanModeEnabled = true; 
+let roastLevel: 'mild' | 'medium' | 'savage' = 'savage'; 
 let periodicTimer: NodeJS.Timeout | null = null;
 
 if (!token || difyApiKeys.length === 0) {
@@ -96,6 +96,14 @@ client.once('ready', async (readyClient) => {
             .addStringOption(option =>
                 option.setName('prompt')
                     .setDescription('الرسالة أو السؤال')
+                    .setRequired(true)
+            ),
+        new SlashCommandBuilder()
+            .setName('avatar')
+            .setDescription('التعليق والتحليل/الطقطقة على افتار عضو معّين')
+            .addUserOption(option =>
+                option.setName('user')
+                    .setDescription('العضو المراد فحص افتاره')
                     .setRequired(true)
             ),
         new SlashCommandBuilder()
@@ -235,7 +243,7 @@ async function triggerRandomTopic(botClient: Client) {
 function startPeriodicTask(botClient: Client) {
     if (periodicTimer) clearInterval(periodicTimer);
 
-    const TWELVE_HOURS = 12 * 60 * 60 * 1000; // نظام الـ 12 ساعة حسب طلبك
+    const TWELVE_HOURS = 12 * 60 * 60 * 1000; 
 
     periodicTimer = setInterval(() => {
         if (isAutoTopicsEnabled) {
@@ -245,7 +253,7 @@ function startPeriodicTask(botClient: Client) {
 }
 
 // ==========================================
-// 8. التعامل مع أومر الـ Slash Commands
+// 8. التعامل مع أوامر الـ Slash Commands
 // ==========================================
 client.on('interactionCreate', async interaction => {
     if (!interaction.isChatInputCommand()) return;
@@ -258,6 +266,17 @@ client.on('interactionCreate', async interaction => {
         const answer = await sendQueryToDify(prompt, interaction.user.id);
         await interaction.editReply(answer);
     } 
+    else if (commandName === 'avatar') {
+        const targetUser = interaction.options.getUser('user', true);
+        const avatarUrl = targetUser.displayAvatarURL({ extension: 'png', size: 512 });
+        await interaction.deferReply();
+
+        const prompt = `هذا رابط افتار العضو (${targetUser.username}): ${avatarUrl}
+علق على هذا الافتار بأسلوبك. إذا كان الأفتار غريباً أو يستدعي الطقطقة: طقطق عليه بنفس مستوى الجلد المحدد (${roastLevel}). إذا كان صاحبه (أبو حرب) فامدح ذوقه وافتاره بفخامة.`;
+
+        const answer = await sendQueryToDify(prompt, interaction.user.id);
+        await interaction.editReply(answer);
+    }
     else if (commandName === 'auto-topics') {
         const status = interaction.options.getString('status', true);
         if (status === 'enable') {
@@ -265,14 +284,14 @@ client.on('interactionCreate', async interaction => {
             await interaction.reply('✅ تم **تشغيل** المواضيع التلقائية كل 12 ساعة بنجاح!');
         } else {
             isAutoTopicsEnabled = false;
-            await interaction.reply('🛑 تم **إيقاف** المواضيع التلقائية نهائياً. لن يرسل البوت أي شطحات تلقائية بعد الآن.');
+            await interaction.reply('🛑 تم **إيقاف** المواضيع التلقائية نهائياً.');
         }
     }
     else if (commandName === 'mode') {
         const modeType = interaction.options.getString('type', true);
         if (modeType === 'human') {
             humanModeEnabled = true;
-            await interaction.reply('🎭 تم تحويل النمط إلى **إنساني طبيعي** (يسولف بأسلوب عفوي وشبابي كأنه شخص واقعي).');
+            await interaction.reply('🎭 تم تحويل النمط إلى **إنساني طبيعي**.');
         } else {
             humanModeEnabled = false;
             await interaction.reply('🤖 تم تحويل النمط إلى **بوت رسمي ومباشر**.');
@@ -282,7 +301,7 @@ client.on('interactionCreate', async interaction => {
         const level = interaction.options.getString('level', true) as 'mild' | 'medium' | 'savage';
         roastLevel = level;
         const levelNames = { mild: 'خفيف 😅', medium: 'متوسط ⚖️', savage: 'شرس ومسح جبهات 🔥' };
-        await interaction.reply(`🔥 تم تعديل مستوى الزبدة والطقطقة إلى: **${levelNames[level]}**`);
+        await interaction.reply(`🔥 تم تعديل مستوى الطقطقة إلى: **${levelNames[level]}**`);
     }
     else if (commandName === 'topic-now') {
         await interaction.reply({ content: '⏳ جاري إرسال موضوع شاطح للروم...', ephemeral: true });
@@ -291,7 +310,7 @@ client.on('interactionCreate', async interaction => {
 });
 
 // ==========================================
-// 9. التعامل مع الرسائل والمنشن والسلام
+// 9. التعامل مع الرسائل، الصور، GIF، والستيكرات
 // ==========================================
 client.on('messageCreate', async message => {
     try {
@@ -301,7 +320,7 @@ client.on('messageCreate', async message => {
         const isVIP = (VIP_USERNAME && message.author.username.toLowerCase() === VIP_USERNAME.toLowerCase()) || 
                       (VIP_USER_ID && message.author.id === VIP_USER_ID);
 
-        // 🎯 1️⃣ رد تلقائي وعشوائي عند منشن أبو حرب
+        // 🎯 1️⃣ رد تلقائي عند منشن أبو حرب
         const mentionedVip = VIP_USER_ID && message.mentions.users.has(VIP_USER_ID);
         if (mentionedVip && !isVIP) {
             const vipReplies = [
@@ -326,7 +345,7 @@ client.on('messageCreate', async message => {
             return;
         }
 
-        // 3️⃣ الرد المباشر في الروم المخصص أو منشن البوت نفسه
+        // 3️⃣ الرد المباشر ومعالجة المرفقات (GIFs / Images / Stickers)
         const isTargetChannel = message.channelId === TARGET_CHANNEL_ID;
         const isBotMentioned = client.user && message.mentions.has(client.user);
 
@@ -337,7 +356,23 @@ client.on('messageCreate', async message => {
                 cleanPrompt = cleanPrompt.replace(mentionRegex, '').trim();
             }
 
-            if (!cleanPrompt) {
+            // فحص الصور و الـ GIFs المرفقة
+            let attachmentUrls: string[] = [];
+            if (message.attachments.size > 0) {
+                message.attachments.forEach(attachment => {
+                    attachmentUrls.push(attachment.url);
+                });
+            }
+
+            // فحص الستيكرات (Stickers)
+            let stickerUrls: string[] = [];
+            if (message.stickers.size > 0) {
+                message.stickers.forEach(sticker => {
+                    stickerUrls.push(`https://media.discordapp.net/stickers/${sticker.id}.png`);
+                });
+            }
+
+            if (!cleanPrompt && attachmentUrls.length === 0 && stickerUrls.length === 0) {
                 if (isVIP) {
                     await message.reply('سم وامرني يا أبو حرب، تحت أمرك وش بغيت؟ 👑');
                 } else {
@@ -348,28 +383,35 @@ client.on('messageCreate', async message => {
 
             await message.channel.sendTyping();
             
+            let extraContext = '';
+            if (attachmentUrls.length > 0) {
+                extraContext += `\n[مرفق صورة/GIF من المستخدم: ${attachmentUrls.join(', ')}]`;
+            }
+            if (stickerUrls.length > 0) {
+                extraContext += `\n[أرسل المستخدم ستيكر: ${stickerUrls.join(', ')}]`;
+            }
+
             let promptWithUser = '';
             if (isVIP) {
-                promptWithUser = `المستخدم هو (أبو حرب) راعي السيرفر وكبيرنا بالروم، يرسل لك: "${cleanPrompt}". 
-رد عليه بمنتهى الاحترام وهيبة ولقبه دائماً بـ (أبو حرب) واستخدم عبارات تقدير، واجعل كلامك موجزاً ومباشراً بدون فلسفة زايدة.`;
+                promptWithUser = `المستخدم هو (أبو حرب) راعي السيرفر، يرسل لك: "${cleanPrompt}" ${extraContext}. 
+رد عليه بمنتهى الاحترام والهيبة واشكره أو علق بأسلوب راقي وموجز.`;
             } else {
                 const humanStylePrompt = humanModeEnabled 
-                    ? `- اكتب بأسلوب شخص واقعي حقيقي وسولف بعفوية تامة. نوع باستخدام كلمات عامية شبابية مختصرة، وبدون تنسيقات أو تنقيط مبالغ فيه لكتابة الذكاء الاصطناعي.` 
+                    ? `- اكتب بأسلوب شخص واقعي حقيقي وسولف بعفوية تامة وبدون تكلف.` 
                     : `- أجب كبوت ذكي ومباشر.`;
 
                 const roastStylePrompt = roastLevel === 'savage' 
-                    ? `إذا كان فيه أي طقطقة أو استهزاء: افصل عليه فوراً واجلده بأسلوب شرس وتزبييد قوي يمسح جبهته!` 
+                    ? `إذا كان الكلام أو الصورة/الستيكر فيها استهزاء أو طقطقة: افصل عليه فوراً واجلده بأسلوب شرس يمسح جبهته!` 
                     : roastLevel === 'medium' 
-                    ? `إذا كان فيه استهزاء: زبّد له بشكل متوسط وبطقطقة خفيفة.`
-                    : `إذا كان فيه استهزاء: رد بطقطقة بسيطة وبدون هجوم قوي.`;
+                    ? `إذا كان فيها استهزاء: زبّد له بشكل متوسط.`
+                    : `إذا كان فيها استهزاء: رد بطقطقة بسيطة.`;
 
-                promptWithUser = `العضو (${message.author.username}) يقول لك: "${cleanPrompt}".
+                promptWithUser = `العضو (${message.author.username}) يقول لك: "${cleanPrompt}" ${extraContext}.
 تعليمات التعامل والشخصية:
 1. أنت خوي معهم بالسيرفر.
 ${humanStylePrompt}
-2. إذا كان كلام العضو عادي أو سؤال طبيعي: رد عليه عادي بأسلوب خوي وسولف معه باختصار.
-3. إذا حسيت إن كلامه فيه (طقطقة عليك، مسخرة، استهزاء، استظراف، أو ضحك عليك): 
-${roastStylePrompt}`;
+2. إذا أرسل صورة أو GIF أو ستيكر: علق على الصورة أو الستيكر بأسلوب ساخر أو خوي عفوي.
+3. ${roastStylePrompt}`;
             }
 
             const answer = await sendQueryToDify(promptWithUser, message.author.id);
