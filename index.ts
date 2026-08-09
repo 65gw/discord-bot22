@@ -70,6 +70,7 @@ const difyApiKeys = [
 let currentKeyIndex = 0;
 let isAutoTopicsEnabled = true; 
 let isSavageModeEnabled = true; 
+let isChatRespondingEnabled = true; // متغير التحكم بالردود في الشات
 let periodicTimer: NodeJS.Timeout | null = null;
 
 if (!token || difyApiKeys.length === 0) {
@@ -114,6 +115,19 @@ client.once('ready', async (readyClient) => {
                 option.setName('message')
                     .setDescription('محتوى الرسالة')
                     .setRequired(true)
+            ),
+
+        new SlashCommandBuilder()
+            .setName('chat-toggle')
+            .setDescription('تشغيل أو إيقاف رد البوت التلقائي في الشات')
+            .addStringOption(option =>
+                option.setName('status')
+                    .setDescription('اختر الحالة')
+                    .setRequired(true)
+                    .addChoices(
+                        { name: '🟢 تفعيل الردود بالشات', value: 'enable' },
+                        { name: '🔴 إيقاف الردود بالشات', value: 'disable' }
+                    )
             ),
 
         new SlashCommandBuilder()
@@ -333,6 +347,13 @@ client.on('interactionCreate', async interaction => {
             await interaction.reply({ content: `❌ تعذر إرسال رسالة خاصة إلى ${targetUser.tag}.`, ephemeral: true });
         }
     }
+    else if (commandName === 'chat-toggle') {
+        const status = interaction.options.getString('status', true);
+        isChatRespondingEnabled = (status === 'enable');
+        await interaction.reply({
+            content: `📢 تم **${isChatRespondingEnabled ? 'تفعيل 🟢' : 'إيقاف 🔴'}** ردود البوت التلقائية في الشات.`
+        });
+    }
     else if (commandName === 'bot-mode') {
         const mode = interaction.options.getString('mode', true);
         isSavageModeEnabled = (mode === 'savage');
@@ -395,6 +416,9 @@ client.on('messageCreate', async message => {
     try {
         if (message.author.bot) return;
 
+        // التحقق مما إذا كانت ردود الشات معطلة
+        if (!isChatRespondingEnabled) return;
+
         const contentLower = message.content.trim().toLowerCase();
         const isVIP = (VIP_USERNAME && message.author.username.toLowerCase() === VIP_USERNAME.toLowerCase()) || 
                       (VIP_USER_ID && message.author.id === VIP_USER_ID);
@@ -424,20 +448,17 @@ client.on('messageCreate', async message => {
             let targetImageUrl: string | undefined = undefined;
             let imageTypeContext = '';
 
-            // 1. إذا كان ستيكر (Sticker)
             if (message.stickers.size > 0) {
                 const sticker = message.stickers.first();
                 targetImageUrl = `https://media.discordapp.net/stickers/${sticker?.id}.png`;
                 imageTypeContext = `[نوع المرفق: ستيكر دسكورد تعبيري بعنوان "${sticker?.name}"]`;
             }
-            // 2. إذا كان مرفق (صورة أو GIF)
             else if (message.attachments.size > 0) {
                 const attachment = message.attachments.first();
                 targetImageUrl = attachment?.url;
                 const isGif = attachment?.contentType?.includes('gif') || attachment?.url.endsWith('.gif');
                 imageTypeContext = isGif ? `[نوع المرفق: صورة متحركة GIF]` : `[نوع المرفق: صورة مرفقة بالشات]`;
             } 
-            // 3. إذا كان طلب أفتار (Avatar)
             else if (cleanPrompt.includes('افتار') || cleanPrompt.includes('الافتار') || cleanPrompt.includes('صورة الحساب')) {
                 const mentionedUser = message.mentions.users.first();
                 const targetUser = mentionedUser || message.author;
@@ -452,7 +473,6 @@ client.on('messageCreate', async message => {
 
             await message.channel.sendTyping();
 
-            // تعليمات ذكية تحدد طريقة التفاعل حسب نوع المرفق
             const strictInstructions = `
 [القواعد الأساسية للرد]
 1. لا تقم بوصف الصورة جافاً إلا إذا طُلِب منك تقييمها أو وصفها.
