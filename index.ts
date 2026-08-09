@@ -69,7 +69,7 @@ const difyApiKeys = [
 
 let currentKeyIndex = 0;
 let isAutoTopicsEnabled = true; 
-let isSavageModeEnabled = true; // تفعيل نمط قلة الأدب والطقطقة كوضع افتراضي
+let isSavageModeEnabled = true; 
 let periodicTimer: NodeJS.Timeout | null = null;
 
 if (!token || difyApiKeys.length === 0) {
@@ -87,13 +87,12 @@ const client = new Client({
 });
 
 // ==========================================
-// 5. تسجيل أوامر Slash الجديدة
+// 5. تسجيل أوامر Slash
 // ==========================================
 client.once('ready', async (readyClient) => {
     console.log(` Logged in as ${readyClient.user.tag}!`);
 
     const commands = [
-        // أمر السؤال
         new SlashCommandBuilder()
             .setName('ask')
             .setDescription('سؤال البوت باختصار')
@@ -103,7 +102,6 @@ client.once('ready', async (readyClient) => {
                     .setRequired(true)
             ),
 
-        // أمر إرسال رسالة بالخاص (DM)
         new SlashCommandBuilder()
             .setName('dm')
             .setDescription('إرسال رسالة خاصة إلى عضو محدد عبر البوت')
@@ -118,7 +116,6 @@ client.once('ready', async (readyClient) => {
                     .setRequired(true)
             ),
 
-        // أمر التبديل بين نمط الطقطقة والنمط العادي
         new SlashCommandBuilder()
             .setName('bot-mode')
             .setDescription('التحكم في أسلوب البوت وطقطقته')
@@ -127,12 +124,11 @@ client.once('ready', async (readyClient) => {
                     .setDescription('اختر أسلوب البوت')
                     .setRequired(true)
                     .addChoices(
-                        { name: '🔥 شرس وطقطقة (سavage)', value: 'savage' },
+                        { name: '🔥 شرس وطقطقة (Savage)', value: 'savage' },
                         { name: '🤖 تقني وجاد فقط (Technical)', value: 'polite' }
                     )
             ),
 
-        // أمر التحكم في المواضيع التلقائية
         new SlashCommandBuilder()
             .setName('auto-topics')
             .setDescription('تشغيل/إيقاف المواضيع التلقائية')
@@ -146,12 +142,10 @@ client.once('ready', async (readyClient) => {
                     )
             ),
 
-        // أمر طرح موضوع فوري
         new SlashCommandBuilder()
             .setName('topic-now')
             .setDescription('طرح موضوع فوري'),
 
-        // --- أوامر الحماية والإدارة ---
         new SlashCommandBuilder()
             .setName('purge')
             .setDescription('مسح عدد معين من الرسائل للحماية')
@@ -176,7 +170,6 @@ client.once('ready', async (readyClient) => {
             .addStringOption(option => option.setName('reason').setDescription('السبب'))
             .setDefaultMemberPermissions(PermissionFlagsBits.BanMembers),
 
-        // --- أوامر معلومات السيرفر والمستخدم ---
         new SlashCommandBuilder()
             .setName('user-info')
             .setDescription('عرض معلومات عن مستخدم')
@@ -203,12 +196,13 @@ client.once('ready', async (readyClient) => {
 });
 
 // ==========================================
-// 6. الاتصال بـ Dify ودعم الـ Vision المتقدم
+// 6. الاتصال بـ Dify مع معالجة حماية الصور
 // ==========================================
 async function sendQueryToDify(prompt: string, userId: string, imageUrl?: string): Promise<string> {
     const totalKeys = difyApiKeys.length;
     let attempts = 0;
 
+    // تجهيز المصفوفة فقط في حال وجود صورة وتجاوب Dify معها
     const files = imageUrl ? [
         {
             type: 'image',
@@ -222,15 +216,20 @@ async function sendQueryToDify(prompt: string, userId: string, imageUrl?: string
         currentKeyIndex = (currentKeyIndex + 1) % totalKeys;
 
         try {
+            const payload: any = {
+                inputs: {},
+                query: prompt,
+                response_mode: 'blocking',
+                user: userId,
+            };
+
+            if (files.length > 0) {
+                payload.files = files;
+            }
+
             const response = await axios.post(
                 `${difyBaseUrl}/chat-messages`,
-                {
-                    inputs: {},
-                    query: prompt,
-                    response_mode: 'blocking',
-                    user: userId,
-                    files: files
-                },
+                payload,
                 {
                     headers: {
                         'Authorization': `Bearer ${keyToUse}`,
@@ -242,7 +241,6 @@ async function sendQueryToDify(prompt: string, userId: string, imageUrl?: string
 
             let answer = response.data.answer;
             if (answer && answer.trim().length > 0) {
-                // تقليم الرد في حالة السوالف العامة فقط
                 const lines = answer.trim().split('\n').filter(line => line.trim().length > 0);
                 if (lines.length > 3 && !prompt.includes('برمجة') && !prompt.includes('كود')) {
                     answer = lines.slice(0, 3).join('\n');
@@ -250,13 +248,41 @@ async function sendQueryToDify(prompt: string, userId: string, imageUrl?: string
                 return answer;
             }
         } catch (error: any) {
-            console.error(` [Dify] Error:`, error.response?.data?.message || error.message);
+            console.error(` [Dify Error Key ${currentKeyIndex}]:`, error.response?.data || error.message);
+            
+            // في حال فشل Dify بسبب الصورة، نعيد المحاولة كطلب نصي فقط بدون الصورة
+            if (files.length > 0) {
+                try {
+                    const fallbackResponse = await axios.post(
+                        `${difyBaseUrl}/chat-messages`,
+                        {
+                            inputs: {},
+                            query: prompt,
+                            response_mode: 'blocking',
+                            user: userId
+                        },
+                        {
+                            headers: {
+                                'Authorization': `Bearer ${keyToUse}`,
+                                'Content-Type': 'application/json',
+                            },
+                            timeout: 25000
+                        }
+                    );
+
+                    if (fallbackResponse.data.answer) {
+                        return fallbackResponse.data.answer;
+                    }
+                } catch (fallbackErr: any) {
+                    console.error(' [Fallback Error]:', fallbackErr.response?.data || fallbackErr.message);
+                }
+            }
         }
 
         attempts++;
     }
 
-    return 'خطأ بالنظام، حاول لاحقاً.';
+    return 'حدث خطأ في الاتصال بالنظام، يرجى المحاولة لاحقاً.';
 }
 
 // ==========================================
@@ -268,7 +294,7 @@ async function triggerRandomTopic(botClient: Client) {
         if (channel && channel.isTextBased()) {
             const randomPrompt = `اطرح موضوعاً عشوائياً وغريباً بنص قصير جداً (سطر واحد فقط). ممنوع المقدمات أو الترحيب.`;
             const answer = await sendQueryToDify(randomPrompt, 'cron_12h_system');
-            if (!answer.startsWith('خطأ')) {
+            if (!answer.startsWith('حدث خطأ')) {
                 await (channel as TextChannel).send(answer);
             }
         }
@@ -292,48 +318,37 @@ client.on('interactionCreate', async interaction => {
 
     const { commandName } = interaction;
 
-    // 1. أمر /ask
     if (commandName === 'ask') {
         const prompt = interaction.options.getString('prompt', true);
         await interaction.deferReply();
         const answer = await sendQueryToDify(prompt, interaction.user.id);
         await interaction.editReply(answer);
     } 
-
-    // 2. أمر /dm لإرسال رسالة خاصة
     else if (commandName === 'dm') {
         const targetUser = interaction.options.getUser('target', true);
         const messageText = interaction.options.getString('message', true);
 
         try {
-            await targetUser.send(`📩 **رسالة خاصة قادمة لك:**\n${messageText}`);
+            await targetUser.send(`📩 **رسالة خاصة:**\n${messageText}`);
             await interaction.reply({ content: `✅ تم إرسال الرسالة الخاصة إلى ${targetUser.tag} بنجاح!`, ephemeral: true });
         } catch (err) {
-            await interaction.reply({ content: `❌ لم أتمكن من إرسال رسالة خاصة إلى ${targetUser.tag} (قد تكون الخاص لديه مغلقة).`, ephemeral: true });
+            await interaction.reply({ content: `❌ تعذر إرسال رسالة خاصة إلى ${targetUser.tag}.`, ephemeral: true });
         }
     }
-
-    // 3. أمر /bot-mode للتحكم في نمط الطقطقة
     else if (commandName === 'bot-mode') {
         const mode = interaction.options.getString('mode', true);
         isSavageModeEnabled = (mode === 'savage');
         await interaction.reply(`🔥 تم تعديل نمط البوت إلى: **${isSavageModeEnabled ? 'النمط الشرس والطقطقة' : 'النمط التقني المحترم'}**`);
     }
-
-    // 4. أمر /auto-topics
     else if (commandName === 'auto-topics') {
         const status = interaction.options.getString('status', true);
         isAutoTopicsEnabled = (status === 'enable');
         await interaction.reply(`تم ${isAutoTopicsEnabled ? 'تشغيل' : 'إيقاف'} المواضيع التلقائية.`);
     }
-
-    // 5. أمر /topic-now
     else if (commandName === 'topic-now') {
         await interaction.reply({ content: 'جاري الإرسال...', ephemeral: true });
         await triggerRandomTopic(client);
     }
-
-    // 6. أمر /purge لتنظيف الشات
     else if (commandName === 'purge') {
         const amount = interaction.options.getInteger('amount', true);
         if (amount < 1 || amount > 100) {
@@ -345,8 +360,6 @@ client.on('interactionCreate', async interaction => {
             await interaction.reply({ content: `🧹 تم مسح ${amount} رسالة بنجاح!`, ephemeral: true });
         }
     }
-
-    // 7. أمر /kick
     else if (commandName === 'kick') {
         const user = interaction.options.getUser('user', true);
         const reason = interaction.options.getString('reason') || 'بدون سبب مذكور';
@@ -356,24 +369,18 @@ client.on('interactionCreate', async interaction => {
             await interaction.reply({ content: `👞 تم طرد العضو ${user.tag} السبب: ${reason}` });
         }
     }
-
-    // 8. أمر /ban
     else if (commandName === 'ban') {
         const user = interaction.options.getUser('user', true);
         const reason = interaction.options.getString('reason') || 'بدون سبب مذكور';
         await interaction.guild?.members.ban(user.id, { reason });
         await interaction.reply({ content: `🔨 تم حظر العضو ${user.tag} السبب: ${reason}` });
     }
-
-    // 9. أمر /user-info
     else if (commandName === 'user-info') {
         const user = interaction.options.getUser('target') || interaction.user;
         await interaction.reply({
             content: `👤 **معلومات المستخدم:**\n• الاسم: **${user.tag}**\n• الـ ID: \`${user.id}\`\n• تاريخ إنشاء الحساب: <t:${Math.floor(user.createdTimestamp / 1000)}:R>`
         });
     }
-
-    // 10. أمر /server-info
     else if (commandName === 'server-info') {
         const guild = interaction.guild;
         if (!guild) return;
@@ -384,7 +391,7 @@ client.on('interactionCreate', async interaction => {
 });
 
 // ==========================================
-// 9. معالجة الرسائل والافتارات والاستيكرات والـ GIF
+// 9. معالجة الرسائل والافتارات
 // ==========================================
 client.on('messageCreate', async message => {
     try {
@@ -394,14 +401,12 @@ client.on('messageCreate', async message => {
         const isVIP = (VIP_USERNAME && message.author.username.toLowerCase() === VIP_USERNAME.toLowerCase()) || 
                       (VIP_USER_ID && message.author.id === VIP_USER_ID);
 
-        // منشن VIP (أبو حرب)
         const mentionedVip = VIP_USER_ID && message.mentions.users.has(VIP_USER_ID);
         if (mentionedVip && !isVIP) {
             await message.reply('أبو حرب غير متفرغ حالياً.');
             return;
         }
 
-        // السلام
         const isGreeting = ['السلام عليكم', 'سلام عليكم'].some(g => contentLower.includes(g));
         if (isGreeting) {
             await message.reply(isVIP ? 'وعليكم السلام يا أبو حرب.' : 'وعليكم السلام.');
@@ -418,25 +423,20 @@ client.on('messageCreate', async message => {
                 cleanPrompt = cleanPrompt.replace(mentionRegex, '').trim();
             }
 
-            // --- التقاط روابط الصور، الاستيكرات، GIF، والأفتارات ---
             let targetImageUrl: string | undefined = undefined;
 
-            // 1. المرفقات (صور + GIF)
             if (message.attachments.size > 0) {
                 targetImageUrl = message.attachments.first()?.url;
             } 
-            // 2. الاستيكرات
             else if (message.stickers.size > 0) {
                 targetImageUrl = `https://media.discordapp.net/stickers/${message.stickers.first()?.id}.png`;
             } 
-            // 3. الأفتار عند طلب فحص افتار شخص أو افتار العضو نفسه
             else if (cleanPrompt.includes('افتار') || cleanPrompt.includes('الافتار') || cleanPrompt.includes('صورة')) {
                 const mentionedUser = message.mentions.users.first();
-                if (mentionedUser) {
-                    targetImageUrl = mentionedUser.displayAvatarURL({ extension: 'png', size: 512 });
-                } else {
-                    targetImageUrl = message.author.displayAvatarURL({ extension: 'png', size: 512 });
-                }
+                const targetUser = mentionedUser || message.author;
+                
+                // جلب رابط الصورة بصيغة PNG صريحة ومباشرة لتوافق Dify
+                targetImageUrl = targetUser.displayAvatarURL({ extension: 'png', size: 512, forceStatic: true });
             }
 
             if (!cleanPrompt && !targetImageUrl) {
@@ -446,14 +446,12 @@ client.on('messageCreate', async message => {
 
             await message.channel.sendTyping();
 
-            // تعليمات صريحة تناسب نمط قلة الأدب والطقطقة والجانب التقني
             const strictInstructions = `
-[قواعد الشخصية والرد]
-1. البرمجة والتقنية: إذا تسأل عن برمجة أو أكواد أو مواضيع تقنية، اشرح بأسلوب تقني مفصل وبراحتك.
-2. السوالف العادية: اختصر جداً في سطر أو سطرين فقط بدون مجاملات.
-3. التصدّي للإساءة والطقطقة (${isSavageModeEnabled ? 'مُفعّل أقصى قوة' : 'عادي'}): إذا سبك أحد أو طقطق عليك، رد عليه فوراً بأشرس وأقوى طريقة طقطقة وسخرية ممكنة، وألجمه وخله أضحوكة بدون رحمة!
-4. احترام خاص: إذا كان المستخدم هو أبو حرب (VIP)، تعامل معه باحترام كامل بدون أي طقطقة.
-5. المرفقات والصور والافتارات: إذا وُجدت صورة أو GIF أو أفتار، افحص محتواها وعبّر عنه باختصار شديد وسخرية إذا كان مناسباً.
+[القواعد الأساسية للرد]
+1. إذا سأل المستخدم عن برمجة/أكواد/تقنية: اشرح بأسلوب تقني مفصل وشامل.
+2. السوالف العامة واليومية: اختصر جداً في سطر أو سطرين فقط بدون إطالة.
+3. التصدّي للإساءة والطقطقة: إذا طقطق أحد أو هاجمك، رد عليه بأسلوب طقطقة وسخرية ملجمة.
+4. المستثنى الوحيد: المستخدم (أبو حرب / VIP)، تعامل معه باحترام كامل ودون طقطقة.
             `;
 
             const fullPrompt = `${strictInstructions}\nالمستخدم (${message.author.username}): ${cleanPrompt}`;
