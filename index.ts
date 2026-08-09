@@ -6,7 +6,7 @@ import http from 'http';
 dotenv.config();
 
 // ==========================================
-// 1. نظام الحماية الفولاذي من الكراش
+// 1. نظام الحماية من الكراش
 // ==========================================
 process.on('unhandledRejection', (reason) => {
     console.error(' [حماية] Unhandled Rejection:', reason);
@@ -29,14 +29,13 @@ http.createServer((req, res) => {
 });
 
 // ==========================================
-// 3. نظام الـ Self-Ping لمنع خمول Render
+// 3. نظام Keep-Alive
 // ==========================================
 const RENDER_URL = process.env.RENDER_EXTERNAL_URL || 'https://discord-bot22-8aow.onrender.com';
 
 setInterval(async () => {
     try {
         await axios.get(RENDER_URL, { timeout: 10000 });
-        console.log(' [Keep-Alive] Self-ping successful!');
     } catch (err: any) {
         console.error(' [Keep-Alive] Self-ping failed:', err.message);
     }
@@ -61,17 +60,13 @@ const difyApiKeys = [
 ].filter((key): key is string => Boolean(key && key.trim().length > 0));
 
 let currentKeyIndex = 0;
-
-// متغيرات التحكم بالحالة
 let isAutoTopicsEnabled = true; 
 let periodicTimer: NodeJS.Timeout | null = null;
 
 if (!token || difyApiKeys.length === 0) {
-    console.error(' Error: DISCORD_BOT_TOKEN or DIFY_API_KEYS is missing in Render!');
+    console.error(' Error: Missing Tokens/Keys!');
     process.exit(1);
 }
-
-console.log(` [Dify] Loaded ${difyApiKeys.length} separate API key(s) successfully.`);
 
 const client = new Client({
     intents: [
@@ -82,7 +77,7 @@ const client = new Client({
 });
 
 // ==========================================
-// 5. تسجيل الأوامر والتشغيل الأولي
+// 5. تسجيل الأوامر
 // ==========================================
 client.once('ready', async (readyClient) => {
     console.log(` Logged in as ${readyClient.user.tag}!`);
@@ -90,26 +85,18 @@ client.once('ready', async (readyClient) => {
     const commands = [
         new SlashCommandBuilder()
             .setName('ask')
-            .setDescription('سؤال البوت مباشرة')
+            .setDescription('سؤال البوت باختصار')
             .addStringOption(option =>
                 option.setName('prompt')
-                    .setDescription('الرسالة أو السؤال')
-                    .setRequired(true)
-            ),
-        new SlashCommandBuilder()
-            .setName('avatar')
-            .setDescription('فحص وتحليل افتار عضو معين')
-            .addUserOption(option =>
-                option.setName('user')
-                    .setDescription('العضو المراد فحص افتاره')
+                    .setDescription('الرسالة')
                     .setRequired(true)
             ),
         new SlashCommandBuilder()
             .setName('auto-topics')
-            .setDescription('تشغيل أو إيقاف المواضيع التلقائية (كل 12 ساعة)')
+            .setDescription('تشغيل/إيقاف المواضيع التلقائية')
             .addStringOption(option =>
                 option.setName('status')
-                    .setDescription('اختر الحالة')
+                    .setDescription('الحالة')
                     .setRequired(true)
                     .addChoices(
                         { name: 'تشغيل (كل 12 ساعة)', value: 'enable' },
@@ -118,18 +105,16 @@ client.once('ready', async (readyClient) => {
             ),
         new SlashCommandBuilder()
             .setName('topic-now')
-            .setDescription('إرسال موضوع شاطح فوراً في الروم'),
+            .setDescription('طرح موضوع فوري'),
     ].map(command => command.toJSON());
 
     const rest = new REST({ version: '10' }).setToken(token);
 
     try {
-        console.log('Refreshing application (/) commands...');
         await rest.put(
             Routes.applicationCommands(readyClient.user.id),
             { body: commands },
         );
-        console.log('Successfully reloaded application (/) commands.');
     } catch (error) {
         console.error('Error registering slash commands:', error);
     }
@@ -138,20 +123,26 @@ client.once('ready', async (readyClient) => {
 });
 
 // ==========================================
-// 6. الاتصال بـ Dify
+// 6. الاتصال بـ Dify ودعم الـ Vision
 // ==========================================
-async function sendQueryToDify(prompt: string, userId: string): Promise<string> {
+async function sendQueryToDify(prompt: string, userId: string, imageUrl?: string): Promise<string> {
     const totalKeys = difyApiKeys.length;
     let attempts = 0;
 
+    // تجهيز الملف لمودل الـ Vision في Dify إذا وُجد رابط صورة
+    const files = imageUrl ? [
+        {
+            type: 'image',
+            transfer_method: 'remote_url',
+            url: imageUrl
+        }
+    ] : [];
+
     while (attempts < totalKeys) {
         const keyToUse = difyApiKeys[currentKeyIndex];
-        const keyNumber = currentKeyIndex + 1;
-
         currentKeyIndex = (currentKeyIndex + 1) % totalKeys;
 
         try {
-            console.log(` [Dify] Trying Key #${keyNumber}...`);
             const response = await axios.post(
                 `${difyBaseUrl}/chat-messages`,
                 {
@@ -159,6 +150,7 @@ async function sendQueryToDify(prompt: string, userId: string): Promise<string> 
                     query: prompt,
                     response_mode: 'blocking',
                     user: userId,
+                    files: files
                 },
                 {
                     headers: {
@@ -171,36 +163,33 @@ async function sendQueryToDify(prompt: string, userId: string): Promise<string> 
 
             let answer = response.data.answer;
             if (answer && answer.trim().length > 0) {
-                if (answer.length > 2000) {
-                    answer = answer.substring(0, 1990) + '...\n*(الرد مقصوص لكبر الحجم)*';
+                // اقتطاع الرد لضمان عدم تجاوز سطرين في حال خالف البوت التعليمات
+                const lines = answer.trim().split('\n').filter(line => line.trim().length > 0);
+                if (lines.length > 2) {
+                    answer = lines.slice(0, 2).join('\n');
                 }
                 return answer;
             }
         } catch (error: any) {
-            console.error(` [Dify] Key #${keyNumber} failed:`, error.response?.data?.message || error.message);
+            console.error(` [Dify] Error:`, error.response?.data?.message || error.message);
         }
 
         attempts++;
     }
 
-    return 'خطأ: تعذر الاتصال بنظام المعالجة حالياً.';
+    return 'خطأ بالاتصال بالنظام.';
 }
 
 // ==========================================
-// 7. دالة المواضيع التلقائية
+// 7. المواضيع التلقائية
 // ==========================================
 async function triggerRandomTopic(botClient: Client) {
     try {
         const channel = await botClient.channels.fetch(TARGET_CHANNEL_ID);
         if (channel && channel.isTextBased()) {
-            const randomPrompt = `طرح موضوع للنقاش بشكل آلي ومباشر.
-شروط:
-- موضوع عشوائي أو غريب.
-- أسلوب بوت نظامي ومباشر بدون مقدمات أو تنميق إنساني.`;
-
+            const randomPrompt = `اطرح موضوعاً عشوائياً وغريباً بنص قصير جداً (سطر واحد فقط). ممنوع المقدمات أو الترحيب.`;
             const answer = await sendQueryToDify(randomPrompt, 'cron_12h_system');
-            
-            if (!answer.startsWith('خطأ:')) {
+            if (!answer.startsWith('خطأ')) {
                 await channel.send(answer);
             }
         }
@@ -211,55 +200,36 @@ async function triggerRandomTopic(botClient: Client) {
 
 function startPeriodicTask(botClient: Client) {
     if (periodicTimer) clearInterval(periodicTimer);
-    const TWELVE_HOURS = 12 * 60 * 60 * 1000; 
-
     periodicTimer = setInterval(() => {
-        if (isAutoTopicsEnabled) {
-            triggerRandomTopic(botClient);
-        }
-    }, TWELVE_HOURS);
+        if (isAutoTopicsEnabled) triggerRandomTopic(botClient);
+    }, 12 * 60 * 60 * 1000);
 }
 
 // ==========================================
-// 8. التعامل مع الـ Slash Commands
+// 8. أوامر الـ Slash
 // ==========================================
 client.on('interactionCreate', async interaction => {
     if (!interaction.isChatInputCommand()) return;
 
-    const { commandName } = interaction;
-
-    if (commandName === 'ask') {
+    if (interaction.commandName === 'ask') {
         const prompt = interaction.options.getString('prompt', true);
         await interaction.deferReply();
-        const answer = await sendQueryToDify(prompt, interaction.user.id);
+        const answer = await sendQueryToDify(`أجب على التالي باختصار شديد في سطر واحد فقط:\n${prompt}`, interaction.user.id);
         await interaction.editReply(answer);
     } 
-    else if (commandName === 'avatar') {
-        const targetUser = interaction.options.getUser('user', true);
-        const avatarUrl = targetUser.displayAvatarURL({ extension: 'png', size: 512 });
-        await interaction.deferReply();
-
-        const prompt = `[تحليل صورة افتار]
-اسم المستخدم: ${targetUser.username}
-رابط الصورة المباشر: ${avatarUrl}
-التعليمات: قم بوصف محتوى الصورة المرفقة في الرابط بدقة وبأسلوب بوت تقني ومباشر.`;
-
-        const answer = await sendQueryToDify(prompt, interaction.user.id);
-        await interaction.editReply(answer);
-    }
-    else if (commandName === 'auto-topics') {
+    else if (interaction.commandName === 'auto-topics') {
         const status = interaction.options.getString('status', true);
         isAutoTopicsEnabled = (status === 'enable');
-        await interaction.reply(`🤖 حالة الرسائل التلقائية: **${isAutoTopicsEnabled ? 'مُفعّلة' : 'مُعطّلة'}**`);
+        await interaction.reply(`تم ${isAutoTopicsEnabled ? 'تشغيل' : 'إيقاف'} المواضيع التلقائية.`);
     }
-    else if (commandName === 'topic-now') {
-        await interaction.reply({ content: '🤖 جاري تشغيل وحدة الأوامر التلقائية...', ephemeral: true });
+    else if (interaction.commandName === 'topic-now') {
+        await interaction.reply({ content: 'جاري الإرسال...', ephemeral: true });
         await triggerRandomTopic(client);
     }
 });
 
 // ==========================================
-// 9. التعامل مع الرسائل، الافتارات، والمرفقات
+// 9. معالجة الرسائل والافتار بصرامـة
 // ==========================================
 client.on('messageCreate', async message => {
     try {
@@ -269,25 +239,20 @@ client.on('messageCreate', async message => {
         const isVIP = (VIP_USERNAME && message.author.username.toLowerCase() === VIP_USERNAME.toLowerCase()) || 
                       (VIP_USER_ID && message.author.id === VIP_USER_ID);
 
-        // 1️⃣ منشن أبو حرب
+        // منشن أبو حرب
         const mentionedVip = VIP_USER_ID && message.mentions.users.has(VIP_USER_ID);
         if (mentionedVip && !isVIP) {
-            await message.reply('🤖 نظام: المسؤول (أبو حرب) غير متفرغ حالياً.');
+            await message.reply('أبو حرب غير متفرغ حالياً.');
             return;
         }
 
-        // 2️⃣ السلام
-        const isGreeting = ['السلام عليكم', 'سلام عليكم', 'السلام عليكم ورحمة الله'].some(g => contentLower.includes(g.toLowerCase()));
+        // السلام
+        const isGreeting = ['السلام عليكم', 'سلام عليكم'].some(g => contentLower.includes(g));
         if (isGreeting) {
-            if (isVIP) {
-                await message.reply('وعليكم السلام ورحمة الله وبركاته. أهلاً بك يا أبو حرب. 🤖👑');
-            } else {
-                await message.reply('وعليكم السلام ورحمة الله وبركاته.');
-            }
+            await message.reply(isVIP ? 'وعليكم السلام يا أبو حرب.' : 'وعليكم السلام.');
             return;
         }
 
-        // 3️⃣ ومعالجة الاستفسارات والأفتار والمرفقات
         const isTargetChannel = message.channelId === TARGET_CHANNEL_ID;
         const isBotMentioned = client.user && message.mentions.has(client.user);
 
@@ -298,43 +263,36 @@ client.on('messageCreate', async message => {
                 cleanPrompt = cleanPrompt.replace(mentionRegex, '').trim();
             }
 
-            // سحب رابط افتار المرسل دائماً ليتعرف عليه البوت
-            const senderAvatarUrl = message.author.displayAvatarURL({ extension: 'png', size: 512 });
+            // سحب رابط الصورة سواء كانت أفتار أو مرفق
+            let targetImageUrl: string | undefined = undefined;
 
-            // جمع روابط المرفقات والستيكرات
-            let mediaUrls: string[] = [];
             if (message.attachments.size > 0) {
-                message.attachments.forEach(a => mediaUrls.push(a.url));
-            }
-            if (message.stickers.size > 0) {
-                message.stickers.forEach(s => mediaUrls.push(`https://media.discordapp.net/stickers/${s.id}.png`));
+                targetImageUrl = message.attachments.first()?.url;
+            } else if (message.stickers.size > 0) {
+                targetImageUrl = `https://media.discordapp.net/stickers/${message.stickers.first()?.id}.png`;
+            } else if (cleanPrompt.includes('افتار') || cleanPrompt.includes('الافتار') || cleanPrompt.includes('صورة')) {
+                // إجبار سحب افتار المستخدم فوراً إذا ذكر كلمة "افتار"
+                targetImageUrl = message.author.displayAvatarURL({ extension: 'png', size: 512 });
             }
 
-            if (!cleanPrompt && mediaUrls.length === 0) {
-                await message.reply(isVIP ? 'أهلاً بك يا أبو حرب، النظام جاهز لتلقي أوامرك.' : 'النظام يعمل وجاهز للرد.');
+            if (!cleanPrompt && !targetImageUrl) {
+                await message.reply(isVIP ? 'سم يا أبو حرب، آمر.' : 'هلا بك.');
                 return;
             }
 
             await message.channel.sendTyping();
 
-            // بناء الموجه الموجه لـ Dify بأسلوب البوت المباشر
-            let systemInstruction = `
-أنت بوت ذكاء اصطناعي آلي (System Bot).
-أسلوبك: تقني، مباشر، محدد، وواضح بدون تكلف أو تصنع إنساني.
-معلومات الحساب المرفقة:
-- اسم المرسل: ${message.author.username}
-- رابط افتار المرسل: ${senderAvatarUrl}
-${mediaUrls.length > 0 ? `- وسائط مرفقة بالرسالة: ${mediaUrls.join(', ')}` : ''}
-
-التعليمات:
-1. إذا كان السؤال عن افتاره أو صوره، قم بفتح الرابط المرفق أعلاه ووضف محتواه بدقة.
-2. التزم بالأسلوب التقني الآلي (مثل: "تم تحليل الصورة"، "بناءً على البيانات المرفقة:").
-3. إذا كان المرسل هو (أبو حرب)، قدم له الإجابة بأسلوب نظامي مع الاحترام والتقدير.
+            // تعليمات صريحة ومختصرة جداً
+            const strictInstructions = `
+[تعليمات النظام]
+1. أجب بأسلوب تقني مقتضب ومباشر جداً.
+2. حد الأجابة الأقصى: سطر أو سطرين فقط! يمنع كلياً الإطالة أو الفلسفة أو استخدام عبارات الترحيب والمجاملة الزائدة.
+3. إذا وُجدت صورة مرفقة، افحصها وصِفها باختصار وبشكل مباشر.
             `;
 
-            const fullPrompt = `${systemInstruction}\n\nرسالة المستخدم: "${cleanPrompt}"`;
+            const fullPrompt = `${strictInstructions}\nالمستخدم (${message.author.username}): ${cleanPrompt}`;
 
-            const answer = await sendQueryToDify(fullPrompt, message.author.id);
+            const answer = await sendQueryToDify(fullPrompt, message.author.id, targetImageUrl);
             await message.reply(answer);
         }
     } catch (error) {
