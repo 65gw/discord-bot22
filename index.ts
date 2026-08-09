@@ -1,4 +1,4 @@
-import { Client, GatewayIntentBits, REST, Routes, SlashCommandBuilder } from 'discord.js';
+import { Client, GatewayIntentBits, REST, Routes, SlashCommandBuilder, PermissionFlagsBits } from 'discord.js';
 import axios from 'axios';
 import dotenv from 'dotenv';
 import http from 'http';
@@ -43,14 +43,14 @@ setInterval(async () => {
 }, 8 * 60 * 1000);
 
 // ==========================================
-// 4. قراءة المفاتيح المتغيرة من Render
+// 4. قراءة المفاتيح وإعدادات الإعدادات المتغيرة
 // ==========================================
 const token = process.env.DISCORD_BOT_TOKEN;
 const difyBaseUrl = process.env.DIFY_API_BASE_URL || 'https://api.dify.ai/v1';
 
-const TARGET_CHANNEL_ID = '1459632620416532554'; // روم النقاش الرئيسي
-const VIP_USERNAME = process.env.VIP_USERNAME; // يوزر 65gw
-const VIP_USER_ID = process.env.VIP_USER_ID; // آيدي أبو حرب لتحديد المنشن
+const TARGET_CHANNEL_ID = '1459632620416532554'; 
+const VIP_USERNAME = process.env.VIP_USERNAME; 
+const VIP_USER_ID = process.env.VIP_USER_ID; 
 
 const difyApiKeys = [
     process.env.DIFY_API_KEY1,
@@ -61,6 +61,12 @@ const difyApiKeys = [
 ].filter((key): key is string => Boolean(key && key.trim().length > 0));
 
 let currentKeyIndex = 0;
+
+// متغيرات التحكم بالحالة (State Management)
+let isAutoTopicsEnabled = true; // تشغيل/إيقاف المواضيع التلقائية
+let humanModeEnabled = true; // نمط المحاكاة البشرية (واقعي)
+let roastLevel: 'mild' | 'medium' | 'savage' = 'savage'; // مستوى الجلد والزبدة
+let periodicTimer: NodeJS.Timeout | null = null;
 
 if (!token || difyApiKeys.length === 0) {
     console.error(' Error: DISCORD_BOT_TOKEN or DIFY_API_KEYS is missing in Render!');
@@ -77,8 +83,6 @@ const client = new Client({
     ],
 });
 
-let isPeriodicTaskInitialized = false;
-
 // ==========================================
 // 5. تسجيل الأوامر والتشغيل الأولي
 // ==========================================
@@ -88,12 +92,52 @@ client.once('ready', async (readyClient) => {
     const commands = [
         new SlashCommandBuilder()
             .setName('ask')
-            .setDescription('Ask the Dify AI bot a question')
+            .setDescription('سؤال البوت مباشرة')
             .addStringOption(option =>
                 option.setName('prompt')
-                    .setDescription('The prompt to send to Dify')
+                    .setDescription('الرسالة أو السؤال')
                     .setRequired(true)
             ),
+        new SlashCommandBuilder()
+            .setName('auto-topics')
+            .setDescription('تشغيل أو إيقاف المواضيع التلقائية (كل 12 ساعة)')
+            .addStringOption(option =>
+                option.setName('status')
+                    .setDescription('اختر الحالة')
+                    .setRequired(true)
+                    .addChoices(
+                        { name: 'تشغيل (كل 12 ساعة)', value: 'enable' },
+                        { name: 'إيقاف نهائي', value: 'disable' }
+                    )
+            ),
+        new SlashCommandBuilder()
+            .setName('mode')
+            .setDescription('تغيير أسلوب وشخصية البوت')
+            .addStringOption(option =>
+                option.setName('type')
+                    .setDescription('اختر النمط')
+                    .setRequired(true)
+                    .addChoices(
+                        { name: 'إنساني طبيعي (عفوي وواقعي جدًا)', value: 'human' },
+                        { name: 'بوت رسمي ومباشر', value: 'bot' }
+                    )
+            ),
+        new SlashCommandBuilder()
+            .setName('roast-level')
+            .setDescription('تحديد حدة الزبدة والطقطقة عند الاستهزاء')
+            .addStringOption(option =>
+                option.setName('level')
+                    .setDescription('مستوى الجلد')
+                    .setRequired(true)
+                    .addChoices(
+                        { name: 'خفيف (طقطقة خفيفة)', value: 'mild' },
+                        { name: 'متوسط', value: 'medium' },
+                        { name: 'شرس (جلد ومسح جبهات)', value: 'savage' }
+                    )
+            ),
+        new SlashCommandBuilder()
+            .setName('topic-now')
+            .setDescription('إرسال موضوع شاطح فوراً في الروم'),
     ].map(command => command.toJSON());
 
     const rest = new REST({ version: '10' }).setToken(token);
@@ -109,10 +153,7 @@ client.once('ready', async (readyClient) => {
         console.error('Error registering slash commands:', error);
     }
 
-    if (!isPeriodicTaskInitialized) {
-        initPeriodicTask(readyClient);
-        isPeriodicTaskInitialized = true;
-    }
+    startPeriodicTask(readyClient);
 });
 
 // ==========================================
@@ -167,50 +208,91 @@ async function sendQueryToDify(prompt: string, userId: string): Promise<string> 
 }
 
 // ==========================================
-// 7. دالة الـ 8 ساعات التلقائية
+// 7. دالة المواضيع التلقائية (12 ساعة)
 // ==========================================
-function initPeriodicTask(botClient: Client) {
-    const EIGHT_HOURS = 8 * 60 * 60 * 1000; // تم التعديل إلى 8 ساعات
-
-    setInterval(async () => {
-        try {
-            const channel = await botClient.channels.fetch(TARGET_CHANNEL_ID);
-            if (channel && channel.isTextBased()) {
-                
-                const randomPrompt = `افتح موضوعاً عشوائياً وشاطحاً تماماً مع الشباب في السيرفر.
+async function triggerRandomTopic(botClient: Client) {
+    try {
+        const channel = await botClient.channels.fetch(TARGET_CHANNEL_ID);
+        if (channel && channel.isTextBased()) {
+            const randomPrompt = `افتح موضوعاً عشوائياً وشاطحاً تماماً مع الشباب في السيرفر.
 ملاحظات صارمة:
 - ممنوع كلياً الكلام عن (قطع البي سي، البي سي، الشاهي، القهوة، أو الروتين اليومي).
 - اختر موضوعاً غريباً أو شطحة عشوائية جداً من أي مكان بالدنيا (مواقف، سيناريوهات غريبة، ألعاب، تخيلات، مواقف مضحكة).
 - ادخل في الموضوع مباشرة بأسلوب شاب عفوي بدون سلام ولا مقدمات ولا فلسفة الذكاء الاصطناعي.`;
 
-                const answer = await sendQueryToDify(randomPrompt, 'cron_8h_system');
-                
-                if (answer !== 'يوجد خطا في الاتصال بالنظام، يرجى المحاولة لاحقاً.') {
-                    await channel.send(answer);
-                    console.log('Automated 8-hour message sent successfully!');
-                }
+            const answer = await sendQueryToDify(randomPrompt, 'cron_12h_system');
+            
+            if (answer !== 'يوجد خطا في الاتصال بالنظام، يرجى المحاولة لاحقاً.') {
+                await channel.send(answer);
+                console.log('Automated 12-hour message sent successfully!');
             }
-        } catch (error) {
-            console.error('Error in 8-hour periodic task:', error);
         }
-    }, EIGHT_HOURS);
+    } catch (error) {
+        console.error('Error in periodic topic trigger:', error);
+    }
+}
+
+function startPeriodicTask(botClient: Client) {
+    if (periodicTimer) clearInterval(periodicTimer);
+
+    const TWELVE_HOURS = 12 * 60 * 60 * 1000; // نظام الـ 12 ساعة حسب طلبك
+
+    periodicTimer = setInterval(() => {
+        if (isAutoTopicsEnabled) {
+            triggerRandomTopic(botClient);
+        }
+    }, TWELVE_HOURS);
 }
 
 // ==========================================
-// 8. التعامل مع الأوامر، المنشن، والسلام
+// 8. التعامل مع أومر الـ Slash Commands
 // ==========================================
 client.on('interactionCreate', async interaction => {
     if (!interaction.isChatInputCommand()) return;
 
-    if (interaction.commandName === 'ask') {
+    const { commandName } = interaction;
+
+    if (commandName === 'ask') {
         const prompt = interaction.options.getString('prompt', true);
         await interaction.deferReply();
-
         const answer = await sendQueryToDify(prompt, interaction.user.id);
         await interaction.editReply(answer);
+    } 
+    else if (commandName === 'auto-topics') {
+        const status = interaction.options.getString('status', true);
+        if (status === 'enable') {
+            isAutoTopicsEnabled = true;
+            await interaction.reply('✅ تم **تشغيل** المواضيع التلقائية كل 12 ساعة بنجاح!');
+        } else {
+            isAutoTopicsEnabled = false;
+            await interaction.reply('🛑 تم **إيقاف** المواضيع التلقائية نهائياً. لن يرسل البوت أي شطحات تلقائية بعد الآن.');
+        }
+    }
+    else if (commandName === 'mode') {
+        const modeType = interaction.options.getString('type', true);
+        if (modeType === 'human') {
+            humanModeEnabled = true;
+            await interaction.reply('🎭 تم تحويل النمط إلى **إنساني طبيعي** (يسولف بأسلوب عفوي وشبابي كأنه شخص واقعي).');
+        } else {
+            humanModeEnabled = false;
+            await interaction.reply('🤖 تم تحويل النمط إلى **بوت رسمي ومباشر**.');
+        }
+    }
+    else if (commandName === 'roast-level') {
+        const level = interaction.options.getString('level', true) as 'mild' | 'medium' | 'savage';
+        roastLevel = level;
+        const levelNames = { mild: 'خفيف 😅', medium: 'متوسط ⚖️', savage: 'شرس ومسح جبهات 🔥' };
+        await interaction.reply(`🔥 تم تعديل مستوى الزبدة والطقطقة إلى: **${levelNames[level]}**`);
+    }
+    else if (commandName === 'topic-now') {
+        await interaction.reply({ content: '⏳ جاري إرسال موضوع شاطح للروم...', ephemeral: true });
+        await triggerRandomTopic(client);
     }
 });
 
+// ==========================================
+// 9. التعامل مع الرسائل والمنشن والسلام
+// ==========================================
 client.on('messageCreate', async message => {
     try {
         if (message.author.bot) return;
@@ -271,11 +353,23 @@ client.on('messageCreate', async message => {
                 promptWithUser = `المستخدم هو (أبو حرب) راعي السيرفر وكبيرنا بالروم، يرسل لك: "${cleanPrompt}". 
 رد عليه بمنتهى الاحترام وهيبة ولقبه دائماً بـ (أبو حرب) واستخدم عبارات تقدير، واجعل كلامك موجزاً ومباشراً بدون فلسفة زايدة.`;
             } else {
+                const humanStylePrompt = humanModeEnabled 
+                    ? `- اكتب بأسلوب شخص واقعي حقيقي وسولف بعفوية تامة. نوع باستخدام كلمات عامية شبابية مختصرة، وبدون تنسيقات أو تنقيط مبالغ فيه لكتابة الذكاء الاصطناعي.` 
+                    : `- أجب كبوت ذكي ومباشر.`;
+
+                const roastStylePrompt = roastLevel === 'savage' 
+                    ? `إذا كان فيه أي طقطقة أو استهزاء: افصل عليه فوراً واجلده بأسلوب شرس وتزبييد قوي يمسح جبهته!` 
+                    : roastLevel === 'medium' 
+                    ? `إذا كان فيه استهزاء: زبّد له بشكل متوسط وبطقطقة خفيفة.`
+                    : `إذا كان فيه استهزاء: رد بطقطقة بسيطة وبدون هجوم قوي.`;
+
                 promptWithUser = `العضو (${message.author.username}) يقول لك: "${cleanPrompt}".
 تعليمات التعامل والشخصية:
-1. أنت خوي معهم بالسيرفر وترد بعفوية وسرعة.
+1. أنت خوي معهم بالسيرفر.
+${humanStylePrompt}
 2. إذا كان كلام العضو عادي أو سؤال طبيعي: رد عليه عادي بأسلوب خوي وسولف معه باختصار.
-3. إذا حسيت إن كلامه فيه (طقطقة عليك، مسخرة، استهزاء، استظراف، أو ضحك عليك): أفصل عليه فوراً! زبّد له واجلده بأسلوب شرس وطقطق عليه ورده لمكانه وبدون أي احترام!`;
+3. إذا حسيت إن كلامه فيه (طقطقة عليك، مسخرة، استهزاء، استظراف، أو ضحك عليك): 
+${roastStylePrompt}`;
             }
 
             const answer = await sendQueryToDify(promptWithUser, message.author.id);
