@@ -70,6 +70,7 @@ const difyApiKeys = [
 let currentKeyIndex = 0;
 let isAutoTopicsEnabled = true; 
 let isSavageModeEnabled = true; 
+let isHumanPersona = true; // التحكم في الشخصية: إنسان (true) أو بوت (false)
 let isChatRespondingEnabled = true; // متغير التحكم بالردود في الشات
 let periodicTimer: NodeJS.Timeout | null = null;
 
@@ -127,6 +128,19 @@ client.once('ready', async (readyClient) => {
                     .addChoices(
                         { name: '🟢 تفعيل الردود بالشات', value: 'enable' },
                         { name: '🔴 إيقاف الردود بالشات', value: 'disable' }
+                    )
+            ),
+
+        new SlashCommandBuilder()
+            .setName('mod')
+            .setDescription('التحكم بشخصية البوت (هل يتصرف كـ إنسان أم كـ بوت؟)')
+            .addStringOption(option =>
+                option.setName('persona')
+                    .setDescription('اختر أسلوب الشخصية')
+                    .setRequired(true)
+                    .addChoices(
+                        { name: '👤 إنسان حقيقي (لا يعترف بكونه بوت)', value: 'human' },
+                        { name: '🤖 بوت ذكي (يعترف بكونه برنامج/بوت)', value: 'bot' }
                     )
             ),
 
@@ -341,8 +355,8 @@ client.on('interactionCreate', async interaction => {
         const messageText = interaction.options.getString('message', true);
 
         try {
-            await targetUser.send(`📩 **رسالة خاصة:**\n${messageText}`);
-            await interaction.reply({ content: `✅ تم إرسال الرسالة الخاصة إلى ${targetUser.tag} بنجاح!`, ephemeral: true });
+            await targetUser.send(messageText);
+            await interaction.reply({ content: `✅ تم إرسال الرسالة إلى ${targetUser.tag} بنجاح!`, ephemeral: true });
         } catch (err) {
             await interaction.reply({ content: `❌ تعذر إرسال رسالة خاصة إلى ${targetUser.tag}.`, ephemeral: true });
         }
@@ -352,6 +366,13 @@ client.on('interactionCreate', async interaction => {
         isChatRespondingEnabled = (status === 'enable');
         await interaction.reply({
             content: `📢 تم **${isChatRespondingEnabled ? 'تفعيل 🟢' : 'إيقاف 🔴'}** ردود البوت التلقائية في الشات.`
+        });
+    }
+    else if (commandName === 'mod') {
+        const persona = interaction.options.getString('persona', true);
+        isHumanPersona = (persona === 'human');
+        await interaction.reply({
+            content: `🎭 تم تغيير هُوية وشخصية البوت إلى: **${isHumanPersona ? '👤 إنسان حقيقي' : '🤖 بوت ذكاء اصطناعي'}**`
         });
     }
     else if (commandName === 'bot-mode') {
@@ -473,11 +494,17 @@ client.on('messageCreate', async message => {
 
             await message.channel.sendTyping();
 
+            // تعليمات الهوية بناءً على وضع /mod
+            const personaInstruction = isHumanPersona 
+                ? 'تصرّف وتكلّم كأنك شخص حقيقي وعضو في السيرفر. يمنع منعاً باتاً الاعتراف بكونك بوت أو ذكاء اصطناعي.'
+                : 'تصرّف وتكلّم بوضوح كأنك بوت ذكاء اصطناعي مساعد للسيرفر.';
+
             const strictInstructions = `
 [القواعد الأساسية للرد]
+- هوية النظام: ${personaInstruction}
 1. لا تقم بوصف الصورة جافاً إلا إذا طُلِب منك تقييمها أو وصفها.
 2. إذا كان المرفق (ستيكر أو GIF): تفاعل معه كرد فعل كُوميدي أو طقطقة مناسبة مع سياق المحادثة بدون رسميات.
-3. إذا كان المرفق (أفتار): أعط رأيك وطقطقتك بأسلوب ساخر على أفتار المستخدم (إلا إذا كان أبو حربVIP فامتدحه باحترام).
+3. إذا كان المرفق (أفتار): أعط رأيك وطقطقتك بأسلوب ساخر على أفتار المستخدم (إلا إذا كان أبو حرب VIP فامتدحه باحترام).
 4. السوالف العامة: اختصر الرد في سطر أو سطرين فقط. البرمجة والتقنية: اشرح بأسلوب تقني مفصل.
 5. المستثنى الوحيد: المستخدم (أبو حرب / VIP)، تعامل معه باحترام كامل ودون طقطقة.
             `;
