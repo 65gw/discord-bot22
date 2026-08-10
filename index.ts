@@ -485,7 +485,7 @@ client.on('messageCreate', async message => {
             else if (cleanPrompt.includes('افتار') || cleanPrompt.includes('الافتار') || cleanPrompt.includes('صورة الحساب')) {
                 const mentionedUser = message.mentions.users.first();
                 const targetUser = mentionedUser || message.author;
-                targetImageUrl = targetUser.displayAvatarURL({ extension: 'png", size: 512, forceStatic: true });
+                targetImageUrl = targetUser.displayAvatarURL({ extension: 'png', size: 512, forceStatic: true });
                 imageTypeContext = `[نوع المرفق: أفتار (صورة البروفايل) للمستخدم ${targetUser.username}]`;
             }
 
