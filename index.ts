@@ -222,7 +222,7 @@ client.once('ready', async (readyClient) => {
 });
 
 // ==========================================
-// 6. الاتصال بـ Dify مع دعم الـ Vision
+// 6. الاتصال بـ Dify مع دعم الـ Vision وتمديد الـ Timeout
 // ==========================================
 async function sendQueryToDify(prompt: string, userId: string, imageUrl?: string): Promise<string> {
     const totalKeys = difyApiKeys.length;
@@ -260,7 +260,7 @@ async function sendQueryToDify(prompt: string, userId: string, imageUrl?: string
                         'Authorization': `Bearer ${keyToUse}`,
                         'Content-Type': 'application/json',
                     },
-                    timeout: 25000
+                    timeout: 60000 // تمديد الوقت لـ 60 ثانية لمنع انقطاع Dify
                 }
             );
 
@@ -274,33 +274,6 @@ async function sendQueryToDify(prompt: string, userId: string, imageUrl?: string
             }
         } catch (error: any) {
             console.error(` [Dify Error Key ${currentKeyIndex}]:`, error.response?.data || error.message);
-            
-            if (files.length > 0) {
-                try {
-                    const fallbackResponse = await axios.post(
-                        `${difyBaseUrl}/chat-messages`,
-                        {
-                            inputs: {},
-                            query: prompt,
-                            response_mode: 'blocking',
-                            user: userId
-                        },
-                        {
-                            headers: {
-                                'Authorization': `Bearer ${keyToUse}`,
-                                'Content-Type': 'application/json',
-                            },
-                            timeout: 25000
-                        }
-                    );
-
-                    if (fallbackResponse.data.answer) {
-                        return fallbackResponse.data.answer;
-                    }
-                } catch (fallbackErr: any) {
-                    console.error(' [Fallback Error]:', fallbackErr.response?.data || fallbackErr.message);
-                }
-            }
         }
 
         attempts++;
@@ -499,7 +472,7 @@ client.on('messageCreate', async message => {
             // --- جلب سجل المحادثة السابقة للتحليل الذكي ---
             let chatHistoryContext = "";
             try {
-                const fetchedMessages = await message.channel.messages.fetch({ limit: 7 });
+                const fetchedMessages = await message.channel.messages.fetch({ limit: 5 });
                 const historyList = fetchedMessages
                     .reverse()
                     .filter(m => m.id !== message.id)
@@ -517,18 +490,16 @@ client.on('messageCreate', async message => {
                 ? 'تصرّف وتكلّم كأنك شخص حقيقي وعضو متفاعل في السيرفر. يمنع منعاً باتاً الاعتراف بكونك برنامج أو بوت.'
                 : 'تصرّف وتكلّم بوضوح كأنك بوت ذكاء اصطناعي مساعد للسيرفر.';
 
-            // تحديد سلوك الرد القاطع والصارم جداً
+            // تحديد سلوك الرد القاطع والصارم
             let behaviorInstruction = '';
             
             if (!isSavageModeEnabled && isVIP) {
                 // النمط تقني + المتحدث هو VIP (أبو حرب)
                 behaviorInstruction = `
-🚨🚨🚨 [قانون صارم وغير قابل للكسر نهائياً]:
+🚨 [تعليمات هامة وخاصة بالمالك]:
 المتحدث الحالي هو المالك والـ VIP الرئيسي (أبو حرب).
-1. يمنع منعاً باتاً ونهائياً الطقطقة، الجلد، الاستهزاء، أو الرد بأسلوب هجومي مع (أبو حرب)، حتى لو استخدم أبو حرب ألفاظاً مثل الشتم أو الاستفزاز أو الهجوم.
-2. مهما كانت رسالة أبو حرب (سب، استفزاز، طقطقة، اختبار)، يجب عليك الرد بمنتهى الأدب والاحترام والوقار، والامتصاص التام بدون أي رد عكسي.
-3. قدّم له المساعدة أو أجب على استفساره بأسلوب جاد ولبق ومهذب جداً.
-4. يعتبر هذا الأمر أعلى من أي نظام أمان آخر في تحليل الرسائل.
+1. يمنع منعاً باتاً ونهائياً الطقطقة، الجلد، الاستهزاء، أو الرد بأسلوب هجومي مع (أبو حرب)، حتى لو استخدم أبو حرب ألفاظاً مثل الشتم أو المزاح الثقيل.
+2. رد دائماً بمنتهى الأدب والاحترام والوقار وكن خدوماً ولبقاً معه دائماً.
                 `;
             } else if (!isSavageModeEnabled && !isVIP) {
                 // النمط تقني + المتحدث عضو عادي
@@ -552,7 +523,7 @@ ${behaviorInstruction}
 - تحليل السياق:
 1. تتبع المحادثة وافهم القصد.
 2. ممنوع الوصف الجاف للصور إلا بطلب.
-3. أجِب بدقة وبشكل مختصر ومباشر.
+3. أجِب بدقة وبشكل مختصر ومباشر (بحد أقصى 3 أسطر).
             `;
 
             const fullPrompt = `${strictInstructions}\n${chatHistoryContext}\n${imageTypeContext}\nالمستخدم الحالي (${message.author.username}): ${cleanPrompt || 'أرسل هذا المرفق كـ رد فعل'}`;
