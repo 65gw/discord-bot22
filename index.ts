@@ -205,7 +205,7 @@ client.once('ready', async (readyClient) => {
 
         new SlashCommandBuilder()
             .setName('server-info')
-            .setDescription('عرض معلومات حماية وإحصائيات السيرفر')
+            .setDescription('عرض معلومات حماية وإحصيات السيرفر')
     ].map(command => command.toJSON());
 
     const rest = new REST({ version: '10' }).setToken(token);
@@ -431,13 +431,12 @@ client.on('interactionCreate', async interaction => {
 });
 
 // ==========================================
-// 9. معالجة الرسائل والافتارات والستيكرات
+// 9. معالجة الرسائل والتحليل الذكي للمحادثة
 // ==========================================
 client.on('messageCreate', async message => {
     try {
         if (message.author.bot) return;
 
-        // التحقق مما إذا كانت ردود الشات معطلة
         if (!isChatRespondingEnabled) return;
 
         const contentLower = message.content.trim().toLowerCase();
@@ -494,22 +493,42 @@ client.on('messageCreate', async message => {
 
             await message.channel.sendTyping();
 
+            // --- جلب تاريخ آخر 6 رسائل للتحليل الذكي الشامل ---
+            let chatHistoryContext = "";
+            try {
+                const fetchedMessages = await message.channel.messages.fetch({ limit: 7 });
+                const historyList = fetchedMessages
+                    .reverse()
+                    .filter(m => m.id !== message.id) // استثناء الرسالة الحالية
+                    .map(m => `[${m.author.username}]: ${m.content}`)
+                    .join("\n");
+
+                if (historyList.trim().length > 0) {
+                    chatHistoryContext = `[سياق وسجل المحادثة السابقة بالشات]:\n${historyList}\n---`;
+                }
+            } catch (err) {
+                console.error("خطأ في جلب سجل المحادثة:", err);
+            }
+
             // تعليمات الهوية بناءً على وضع /mod
             const personaInstruction = isHumanPersona 
-                ? 'تصرّف وتكلّم كأنك شخص حقيقي وعضو في السيرفر. يمنع منعاً باتاً الاعتراف بكونك بوت أو ذكاء اصطناعي.'
+                ? 'تصرّف وتكلّم كأنك شخص حقيقي وعضو متفاعل في السيرفر. يمنع منعاً باتاً الاعتراف بكونك برنامج أو بوت.'
                 : 'تصرّف وتكلّم بوضوح كأنك بوت ذكاء اصطناعي مساعد للسيرفر.';
 
             const strictInstructions = `
-[القواعد الأساسية للرد]
+[القواعد الأساسية للتحليل والرد الذكي]
 - هوية النظام: ${personaInstruction}
-1. لا تقم بوصف الصورة جافاً إلا إذا طُلِب منك تقييمها أو وصفها.
-2. إذا كان المرفق (ستيكر أو GIF): تفاعل معه كرد فعل كُوميدي أو طقطقة مناسبة مع سياق المحادثة بدون رسميات.
-3. إذا كان المرفق (أفتار): أعط رأيك وطقطقتك بأسلوب ساخر على أفتار المستخدم (إلا إذا كان أبو حرب VIP فامتدحه باحترام).
-4. السوالف العامة: اختصر الرد في سطر أو سطرين فقط. البرمجة والتقنية: اشرح بأسلوب تقني مفصل.
-5. المستثنى الوحيد: المستخدم (أبو حرب / VIP)، تعامل معه باحترام كامل ودون طقطقة.
+- تحليل السياق (Context Intelligence):
+  1. يجب عليك قراءة [سجل المحادثة السابقة] بذكاء وتتبع تسلسل الأفكار والردود قبل صياغة أي جواب.
+  2. إذا كانت رسالة المستخدم الحالية عبارة عن رد فعل (مثل الضحك: "ههههههه"، التشييك: "أها"، إيموجيات، أو كلمات مقتضبة مثل "اي"، "صح")، ابحث فوراً في السجل المرفق عما كُتب قبله مباشرة من كلام أو موضوع، وابنِ ردك الحالي كمتابعة طبيعية جداً وذكية لآخر نقطة تمت مناقشتها أو الموقف المكتوب.
+  3. استوعب العلاقة بين ما قاله البوت (أو الأعضاء الآخرون) وبين رد فعل المستخدم، واجعل كلامك كأنه يصدر من شخص واقعي يعي تماماً ما تم الحديث عنه قبل لحظات.
+4. لا تقم بوصف الصورة جافاً إلا إذا طُلِب منك ذلك.
+5. إذا كان المرفق (ستيكر أو GIF): تفاعل معه بأسلوب واقعي يتناسب مع جو المحادثة الحالي.
+6. السوالف العامة: اختصر الرد في سطر أو سطرين بعفوية. البرمجة والتقنية: اشرح بأسلوب مفصل ودقيق.
+7. المستثنى الوحيد: المستخدم (أبو حرب / VIP)، تعامل معه باحترام كامل وتقدير.
             `;
 
-            const fullPrompt = `${strictInstructions}\n${imageTypeContext}\nالمستخدم (${message.author.username}): ${cleanPrompt || 'أرسل هذا المرفق كـ رد فعل'}`;
+            const fullPrompt = `${strictInstructions}\n${chatHistoryContext}\n${imageTypeContext}\nالمستخدم الحالي (${message.author.username}): ${cleanPrompt || 'أرسل هذا المرفق كـ رد فعل'}`;
 
             const answer = await sendQueryToDify(fullPrompt, message.author.id, targetImageUrl);
             await message.reply(answer);
