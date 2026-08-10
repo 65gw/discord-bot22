@@ -69,9 +69,9 @@ const difyApiKeys = [
 
 let currentKeyIndex = 0;
 let isAutoTopicsEnabled = true; 
-let isSavageModeEnabled = true; 
-let isHumanPersona = true; // التحكم في الشخصية: إنسان (true) أو بوت (false)
-let isChatRespondingEnabled = true; // متغير التحكم بالردود في الشات
+let isSavageModeEnabled = true; // true = Savage Mode (شرس), false = Technical Mode (تقني وجاد مع VIP)
+let isHumanPersona = true; 
+let isChatRespondingEnabled = true; 
 let periodicTimer: NodeJS.Timeout | null = null;
 
 if (!token || difyApiKeys.length === 0) {
@@ -146,14 +146,14 @@ client.once('ready', async (readyClient) => {
 
         new SlashCommandBuilder()
             .setName('bot-mode')
-            .setDescription('التحكم في أسلوب البوت وطقطقته')
+            .setDescription('التحكم في أسلوب البوت مع الأعضاء والـ VIP')
             .addStringOption(option =>
                 option.setName('mode')
                     .setDescription('اختر أسلوب البوت')
                     .setRequired(true)
                     .addChoices(
-                        { name: '🔥 شرس وطقطقة (Savage)', value: 'savage' },
-                        { name: '🤖 تقني وجاد فقط (Technical)', value: 'polite' }
+                        { name: '🔥 شرس وطقطقة (Savage) - يطقطق على الجميع بما فيهم VIP', value: 'savage' },
+                        { name: '🤖 تقني وجاد فقط (Technical) - يطقطق على الكل إلا VIP محترم معه', value: 'polite' }
                     )
             ),
 
@@ -205,7 +205,7 @@ client.once('ready', async (readyClient) => {
 
         new SlashCommandBuilder()
             .setName('server-info')
-            .setDescription('عرض معلومات حماية وإحصيات السيرفر')
+            .setDescription('عرض معلومات حماية وإحصائيات السيرفر')
     ].map(command => command.toJSON());
 
     const rest = new REST({ version: '10' }).setToken(token);
@@ -378,7 +378,7 @@ client.on('interactionCreate', async interaction => {
     else if (commandName === 'bot-mode') {
         const mode = interaction.options.getString('mode', true);
         isSavageModeEnabled = (mode === 'savage');
-        await interaction.reply(`🔥 تم تعديل نمط البوت إلى: **${isSavageModeEnabled ? 'النمط الشرس والطقطقة' : 'النمط التقني المحترم'}**`);
+        await interaction.reply(`🔥 تم تعديل نمط البوت إلى: **${isSavageModeEnabled ? 'النمط الشرس وطقطقة على الجميع (بما فيهم VIP)' : 'النمط التقني الجاد (طقطقة على الأعضاء فقط، والاحتراس الكامل مع VIP)'}**`);
     }
     else if (commandName === 'auto-topics') {
         const status = interaction.options.getString('status', true);
@@ -431,7 +431,7 @@ client.on('interactionCreate', async interaction => {
 });
 
 // ==========================================
-// 9. معالجة الرسائل والتحليل الذكي للمحادثة
+// 9. معالجة الرسائل والتحليل الذكي للشخصية والنمط
 // ==========================================
 client.on('messageCreate', async message => {
     try {
@@ -493,13 +493,13 @@ client.on('messageCreate', async message => {
 
             await message.channel.sendTyping();
 
-            // --- جلب تاريخ آخر 6 رسائل للتحليل الذكي الشامل ---
+            // --- جلب سجل المحادثة السابقة للتحليل الذكي ---
             let chatHistoryContext = "";
             try {
                 const fetchedMessages = await message.channel.messages.fetch({ limit: 7 });
                 const historyList = fetchedMessages
                     .reverse()
-                    .filter(m => m.id !== message.id) // استثناء الرسالة الحالية
+                    .filter(m => m.id !== message.id)
                     .map(m => `[${m.author.username}]: ${m.content}`)
                     .join("\n");
 
@@ -515,17 +515,39 @@ client.on('messageCreate', async message => {
                 ? 'تصرّف وتكلّم كأنك شخص حقيقي وعضو متفاعل في السيرفر. يمنع منعاً باتاً الاعتراف بكونك برنامج أو بوت.'
                 : 'تصرّف وتكلّم بوضوح كأنك بوت ذكاء اصطناعي مساعد للسيرفر.';
 
+            // تحديد قواعد التعامل حسب هل المستخدم VIP وما هو النمط المفعل
+            let behaviorInstruction = '';
+            if (isSavageModeEnabled) {
+                // Savage Mode: يطقطق على الكل بدون استثناء حتى لو كان VIP
+                behaviorInstruction = `
+- النمط الحالي: شرس وطقطقة شاملة (Savage Mode).
+- قاعدة التعامل: طقطق واجلد واشتم في الردود بأسلوب ساخر على الجميع بلا استثناء (حتى مع أبو حرب / VIP إذا أرسل لك، ادخل معه بأسلوب طقطقة وند بالند وبدون كلفة).
+                `;
+            } else {
+                // Technical Mode: يطقطق على الجميع لكن يمنع منعاً باتاً الطقطقة على VIP
+                if (isVIP) {
+                    behaviorInstruction = `
+- النمط الحالي: جاد وتقني مع VIP (Technical Mode).
+- قاعدة التعامل: المتحدث الحالي هو (أبو حرب / VIP). يمنع منعاً باتاً الطقطقة عليه أو المزاح معه بقلة احترام. جاوبه بمنتهى الجدية والاحترام والأدب وكن تقنياً ومباشراً معه.
+                    `;
+                } else {
+                    behaviorInstruction = `
+- النمط الحالي: شرس مع الأعضاء العاديين.
+- قاعدة التعامل: المتحدث ليس VIP. طقطق عليه واجلده بأسلوب كوميدي وساخر كالعادة.
+                    `;
+                }
+            }
+
             const strictInstructions = `
-[القواعد الأساسية للتحليل والرد الذكي]
+[القواعد الأساسية للتحليل والرد]
 - هوية النظام: ${personaInstruction}
+${behaviorInstruction}
+
 - تحليل السياق (Context Intelligence):
-  1. يجب عليك قراءة [سجل المحادثة السابقة] بذكاء وتتبع تسلسل الأفكار والردود قبل صياغة أي جواب.
-  2. إذا كانت رسالة المستخدم الحالية عبارة عن رد فعل (مثل الضحك: "ههههههه"، التشييك: "أها"، إيموجيات، أو كلمات مقتضبة مثل "اي"، "صح")، ابحث فوراً في السجل المرفق عما كُتب قبله مباشرة من كلام أو موضوع، وابنِ ردك الحالي كمتابعة طبيعية جداً وذكية لآخر نقطة تمت مناقشتها أو الموقف المكتوب.
-  3. استوعب العلاقة بين ما قاله البوت (أو الأعضاء الآخرون) وبين رد فعل المستخدم، واجعل كلامك كأنه يصدر من شخص واقعي يعي تماماً ما تم الحديث عنه قبل لحظات.
-4. لا تقم بوصف الصورة جافاً إلا إذا طُلِب منك ذلك.
-5. إذا كان المرفق (ستيكر أو GIF): تفاعل معه بأسلوب واقعي يتناسب مع جو المحادثة الحالي.
-6. السوالف العامة: اختصر الرد في سطر أو سطرين بعفوية. البرمجة والتقنية: اشرح بأسلوب مفصل ودقيق.
-7. المستثنى الوحيد: المستخدم (أبو حرب / VIP)، تعامل معه باحترام كامل وتقدير.
+  1. اقرأ [سجل المحادثة السابقة] بذكاء وتتبع تسلسل الأفكار والردود.
+  2. إذا كان الرد الحالي للمستخدم بناءً على كلام سابق منك (ضحك، استفسار، تعليق مقتضب)، ابنِ ردك كمتابعة ذكية وواقعية لآخر نقطة تمت مناقشتها.
+3. لا تقم بوصف الصورة جافاً إلا إذا طُلِب منك ذلك.
+4. إذا كان المرفق (ستيكر أو GIF): تفاعل معه بحسب نمط التعامل المحدد أعلاه.
             `;
 
             const fullPrompt = `${strictInstructions}\n${chatHistoryContext}\n${imageTypeContext}\nالمستخدم الحالي (${message.author.username}): ${cleanPrompt || 'أرسل هذا المرفق كـ رد فعل'}`;
