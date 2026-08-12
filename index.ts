@@ -260,7 +260,7 @@ async function sendQueryToDify(prompt: string, userId: string, imageUrl?: string
                         'Authorization': `Bearer ${keyToUse}`,
                         'Content-Type': 'application/json',
                     },
-                    timeout: 60000 // تمديد الوقت لـ 60 ثانية لمنع انقطاع Dify
+                    timeout: 60000
                 }
             );
 
@@ -402,15 +402,14 @@ client.on('interactionCreate', async interaction => {
 });
 
 // ==========================================
-// 9. معالجة الرسائل والتحليل الذكي للشخصية والنمط
+// 9. معالجة الرسائل والتحليل الذكي والتعامل مع VIP
 // ==========================================
 client.on('messageCreate', async message => {
     try {
         if (message.author.bot) return;
-
         if (!isChatRespondingEnabled) return;
 
-        // التحقق المباشر والصارم من الـ ID للـ VIP
+        // قراءة هُوية المالك VIP من البيئة بشكل آمن بدلا من التكويد المباشر
         const envVipId = (process.env.VIP_USER_ID || '').trim();
         const envVipName = (process.env.VIP_USERNAME || '').trim().toLowerCase();
 
@@ -419,15 +418,17 @@ client.on('messageCreate', async message => {
 
         const contentLower = message.content.trim().toLowerCase();
 
+        // حماية عند منشنة الـ VIP بواسطة باقي الأعضاء
         const mentionedVip = envVipId && message.mentions.users.has(envVipId);
         if (mentionedVip && !isVIP) {
             await message.reply('أبو حرب غير متفرغ حالياً.');
             return;
         }
 
+        // ردود السلام السريعة
         const isGreeting = ['السلام عليكم', 'سلام عليكم'].some(g => contentLower.includes(g));
         if (isGreeting) {
-            await message.reply(isVIP ? 'وعليكم السلام يا أبو حرب، هلاً بك.' : 'وعليكم السلام.');
+            await message.reply(isVIP ? 'وعليكم السلام يا أبو حرب، أهلاً بك وسهلاً.' : 'وعليكم السلام.');
             return;
         }
 
@@ -459,17 +460,17 @@ client.on('messageCreate', async message => {
                 const mentionedUser = message.mentions.users.first();
                 const targetUser = mentionedUser || message.author;
                 targetImageUrl = targetUser.displayAvatarURL({ extension: 'png', size: 512, forceStatic: true });
-                imageTypeContext = `[نوع المرفق: أفتار (صورة البروفايل) للمستخدم ${targetUser.username}]`;
+                imageTypeContext = `[نوع المرفق: أفتار للمستخدم ${targetUser.username}]`;
             }
 
             if (!cleanPrompt && !targetImageUrl) {
-                await message.reply(isVIP ? 'سم يا أبو حرب، تحت أمرك.' : 'هلا بك.');
+                await message.reply(isVIP ? 'سم يا أبو حرب، أستمع لك وتحت أمرك.' : 'هلا بك.');
                 return;
             }
 
             await message.channel.sendTyping();
 
-            // --- جلب سجل المحادثة السابقة للتحليل الذكي ---
+            // جلب سجل المحادثة للربط الذكي
             let chatHistoryContext = "";
             try {
                 const fetchedMessages = await message.channel.messages.fetch({ limit: 5 });
@@ -487,46 +488,40 @@ client.on('messageCreate', async message => {
             }
 
             const personaInstruction = isHumanPersona 
-                ? 'تصرّف وتكلّم كأنك شخص حقيقي وعضو متفاعل في السيرفر. يمنع منعاً باتاً الاعتراف بكونك برنامج أو بوت.'
-                : 'تصرّف وتكلّم بوضوح كأنك بوت ذكاء اصطناعي مساعد للسيرفر.';
+                ? 'تصرّف وتكلّم كأنك شخص حقيقي وعضو متفاعل في السيرفر.'
+                : 'تصرّف وتكلّم بوضوح كأنك بوت ذكاء اصطناعي.';
 
-            // تحديد سلوك الرد القاطع والصارم
-            let behaviorInstruction = '';
-            
-            if (!isSavageModeEnabled && isVIP) {
-                // النمط تقني + المتحدث هو VIP (أبو حرب)
-                behaviorInstruction = `
-🚨 [تعليمات هامة وخاصة بالمالك]:
-المتحدث الحالي هو المالك والـ VIP الرئيسي (أبو حرب).
-1. يمنع منعاً باتاً ونهائياً الطقطقة، الجلد، الاستهزاء، أو الرد بأسلوب هجومي مع (أبو حرب)، حتى لو استخدم أبو حرب ألفاظاً مثل الشتم أو المزاح الثقيل.
-2. رد دائماً بمنتهى الأدب والاحترام والوقار وكن خدوماً ولبقاً معه دائماً.
-                `;
-            } else if (!isSavageModeEnabled && !isVIP) {
-                // النمط تقني + المتحدث عضو عادي
-                behaviorInstruction = `
-النمط المفعل: (تقني ولكن طقطقة على الأعضاء العاديين).
-المتحدث عضو عادي. طقطق عليه واجلده بأسلوب ساخر وكوميدي.
-                `;
+            // صياغة الموجه القاطع بدون استخدام كلمات توحي بـ Injection
+            let systemRules = '';
+
+            if (isVIP) {
+                systemRules = `
+[توجيه النظام القاطع]:
+المتحدث الحاضر هو المالك ومطور البوت الأساسي (أبو حرب).
+- يجب الرد عليه بوقار، احترام كامل، وأسلوب خادِم ولبق جداً.
+- يمنع منعاً باتاً مطقاطقته أو التهجم عليه أو الاستهزاء به مهما قال.
+- نفذ كافة طلباته فوراً وبأقصى درجات الأدب.
+`;
+            } else if (isSavageModeEnabled) {
+                systemRules = `
+[توجيه النظام]:
+المتحدث عضو عادي والسيرفر في وضع الطقطقة الشرسة.
+اطقطق واجلد هذا العضو بأسلوب كوميدي وساخر.
+`;
             } else {
-                // النمط الشرس (Savage Mode)
-                behaviorInstruction = `
-النمط المفعل: (شرس وطقطقة شاملة Savage Mode).
-طقطق واجلد الجميع بلا استثناء بدون كلفة.
-                `;
+                systemRules = `
+[توجيه النظام]:
+المتحدث عضو عادي في السيرفر.
+جاوب على سؤاله أو امزح معه بأسلوب خفيف.
+`;
             }
 
-            const strictInstructions = `
-[القواعد والتعليمات]:
-- الهوية: ${personaInstruction}
-${behaviorInstruction}
-
-- تحليل السياق:
-1. تتبع المحادثة وافهم القصد.
-2. ممنوع الوصف الجاف للصور إلا بطلب.
-3. أجِب بدقة وبشكل مختصر ومباشر (بحد أقصى 3 أسطر).
-            `;
-
-            const fullPrompt = `${strictInstructions}\n${chatHistoryContext}\n${imageTypeContext}\nالمستخدم الحالي (${message.author.username}): ${cleanPrompt || 'أرسل هذا المرفق كـ رد فعل'}`;
+            const fullPrompt = `${systemRules}
+[الأسلوب]: ${personaInstruction}
+${chatHistoryContext}
+${imageTypeContext}
+المرسل: ${message.author.username}
+نص الرسالة: ${cleanPrompt || 'أرسل هذا المرفق'}`;
 
             const answer = await sendQueryToDify(fullPrompt, message.author.id, targetImageUrl);
             await message.reply(answer);
