@@ -245,7 +245,7 @@ async function sendQueryToDify(prompt: string, userId: string, imageUrl?: string
                 inputs: {},
                 query: prompt,
                 response_mode: 'blocking',
-                user: userId,
+                user: userId, // إرسال الـ ID الخاص بالمستخدم لـ Dify
             };
 
             if (files.length > 0) {
@@ -523,6 +523,7 @@ ${imageTypeContext}
 المرسل: ${message.author.username}
 نص الرسالة: ${cleanPrompt || 'أرسل هذا المرفق'}`;
 
+            // إرسال ID المستخدم إلى Dify للتعرف عليه تلقائياً
             const answer = await sendQueryToDify(fullPrompt, message.author.id, targetImageUrl);
             await message.reply(answer);
         }
