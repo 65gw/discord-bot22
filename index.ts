@@ -144,14 +144,14 @@ client.once('ready', async (readyClient) => {
 
         new SlashCommandBuilder()
             .setName('bot-mode')
-            .setDescription('التحكم في أسلوب البوت مع الأعضاء والـ VIP')
+            .setDescription('التحكم في نمط الرد وطريقة التعامل')
             .addStringOption(option =>
                 option.setName('mode')
-                    .setDescription('اختر أسلوب البوت')
+                    .setDescription('اختر نمط التعامل')
                     .setRequired(true)
                     .addChoices(
-                        { name: '🔥 شرس وطقطقة (Savage) - يطقطق على الجميع بما فيهم VIP', value: 'savage' },
-                        { name: '🤖 تقني وجاد فقط (Technical) - يطقطق على الكل إلا VIP محترم معه', value: 'polite' }
+                        { name: '🔥 شرس وطقطقة (Savage) - يطقطق على الكل ويحترم VIP', value: 'savage' },
+                        { name: '🤖 جاد وتقني (Technical) - أسلوب رسمي ومحترم مع الجميع', value: 'polite' }
                     )
             ),
 
@@ -245,7 +245,7 @@ async function sendQueryToDify(prompt: string, userId: string, imageUrl?: string
                 inputs: {},
                 query: prompt,
                 response_mode: 'blocking',
-                user: userId, // إرسال الـ ID الخاص بالمستخدم لـ Dify
+                user: userId,
             };
 
             if (files.length > 0) {
@@ -349,7 +349,7 @@ client.on('interactionCreate', async interaction => {
     else if (commandName === 'bot-mode') {
         const mode = interaction.options.getString('mode', true);
         isSavageModeEnabled = (mode === 'savage');
-        await interaction.reply(`🤖 تم تغيير نمط البوت إلى: **${isSavageModeEnabled ? 'النمط الشرس وطقطقة (Savage Mode)' : 'النمط التقني الجاد واحترام الـ VIP (Technical Mode)'}**`);
+        await interaction.reply(`🤖 تم تغيير نمط البوت إلى: **${isSavageModeEnabled ? 'النمط الشرس وطقطقة (Savage Mode) - مفعّل على باقي الأعضاء مع احترام VIP' : 'النمط الجاد والتقني (Technical Mode)'}**`);
     }
     else if (commandName === 'auto-topics') {
         const status = interaction.options.getString('status', true);
@@ -409,10 +409,10 @@ client.on('messageCreate', async message => {
         if (message.author.bot) return;
         if (!isChatRespondingEnabled) return;
 
-        // قراءة هُوية المالك VIP من البيئة بشكل آمن بدلا من التكويد المباشر
         const envVipId = (process.env.VIP_USER_ID || '').trim();
         const envVipName = (process.env.VIP_USERNAME || '').trim().toLowerCase();
 
+        // التحقق القاطع من الـ VIP
         const isVIP = (envVipId.length > 0 && message.author.id === envVipId) || 
                       (envVipName.length > 0 && message.author.username.toLowerCase() === envVipName);
 
@@ -491,28 +491,31 @@ client.on('messageCreate', async message => {
                 ? 'تصرّف وتكلّم كأنك شخص حقيقي وعضو متفاعل في السيرفر.'
                 : 'تصرّف وتكلّم بوضوح كأنك بوت ذكاء اصطناعي.';
 
-            // صياغة الموجه القاطع بدون استخدام كلمات توحي بـ Injection
+            // التوجيه الصارم حسب رتبة المستخدم والنمط المفعل
             let systemRules = '';
 
             if (isVIP) {
+                // الـ VIP يتلقى أسلوباً محترماً ولبقاً دائماً بغض النظر عن النمط الشرس
                 systemRules = `
-[توجيه النظام القاطع]:
-المتحدث الحاضر هو المالك ومطور البوت الأساسي (أبو حرب).
-- يجب الرد عليه بوقار، احترام كامل، وأسلوب خادِم ولبق جداً.
-- يمنع منعاً باتاً مطقاطقته أو التهجم عليه أو الاستهزاء به مهما قال.
-- نفذ كافة طلباته فوراً وبأقصى درجات الأدب.
+[توجيه النظام القاطع والمُطلق]:
+المتحدث الحاضر هو المالك ومطور البوت الأساسي (أبو حرب) - شخصية VIP.
+- أظهر له احتراماً كاملاً، ووقاراً، وأسلوباً لبقاً وخادماً جداً.
+- يمنع منعاً باتاً الطقطقة عليه أو السخرية منه أو المزاح غير اللائق تحت أي ظرف.
+- نفذ طلباته بإجابات واضحة ودقيقة ومباشرة.
 `;
             } else if (isSavageModeEnabled) {
+                // وضع الطقطقة الشرسة على باقي الأعضاء
                 systemRules = `
 [توجيه النظام]:
-المتحدث عضو عادي والسيرفر في وضع الطقطقة الشرسة.
-اطقطق واجلد هذا العضو بأسلوب كوميدي وساخر.
+المتحدث عضو عادي في السيرفر، ووضع السيرفر حالياً هو (الطقطقة الشرسة).
+- اطقطق واجلد هذا العضو بأسلوب ساخر وكوميدي ومتهكم.
 `;
             } else {
+                // الوضع الجاد والتقني للعاديين
                 systemRules = `
 [توجيه النظام]:
 المتحدث عضو عادي في السيرفر.
-جاوب على سؤاله أو امزح معه بأسلوب خفيف.
+- جاوب على سؤاله بأسلوب جاد، واضح، ومباشر بدون طقطقة.
 `;
             }
 
@@ -523,7 +526,6 @@ ${imageTypeContext}
 المرسل: ${message.author.username}
 نص الرسالة: ${cleanPrompt || 'أرسل هذا المرفق'}`;
 
-            // إرسال ID المستخدم إلى Dify للتعرف عليه تلقائياً
             const answer = await sendQueryToDify(fullPrompt, message.author.id, targetImageUrl);
             await message.reply(answer);
         }
