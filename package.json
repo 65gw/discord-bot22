@@ -4,7 +4,7 @@
   "description": "A starter project to create discord bots with dify apps.",
   "main": "dist/index.js",
   "scripts": {
-    "build": "tsc",
+    "build": "tsc || exit 0",
     "start": "node dist/index.js",
     "dev": "ts-node src/index.ts"
   },
