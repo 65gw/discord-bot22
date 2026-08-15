@@ -471,8 +471,8 @@ client.on('interactionCreate', async interaction => {
                     selfMute: false
                 });
 
-                // تمديد مهلة الاتصال إلى 30 ثانية لتجنب AbortError تماماً على Render
-                await entersState(connection, VoiceConnectionStatus.Ready, 30000);
+                // تمديد مهلة الاتصال إلى 60 ثانية لتجنب AbortError تماماً على Render
+                await entersState(connection, VoiceConnectionStatus.Ready, 60_000);
                 await interaction.editReply({ content: `🔊 تم دخول الروم الصوتي **${voiceChannel.name}** وجاهز للاستماع والحديث!` });
 
                 const receiver = connection.receiver;
