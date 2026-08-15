@@ -5,8 +5,15 @@ import {
     Routes, 
     SlashCommandBuilder, 
     PermissionFlagsBits,
-    TextChannel
+    TextChannel,
+    GuildMember
 } from 'discord.js';
+import { 
+    joinVoiceChannel, 
+    getVoiceConnection, 
+    VoiceConnectionStatus, 
+    entersState 
+} from '@discordjs/voice';
 import axios from 'axios';
 import dotenv from 'dotenv';
 import http from 'http';
@@ -83,6 +90,7 @@ const client = new Client({
         GatewayIntentBits.GuildMessages,
         GatewayIntentBits.MessageContent,
         GatewayIntentBits.GuildMembers,
+        GatewayIntentBits.GuildVoiceStates,
     ],
 });
 
@@ -203,7 +211,20 @@ client.once('ready', async (readyClient) => {
 
         new SlashCommandBuilder()
             .setName('server-info')
-            .setDescription('عرض معلومات حماية وإحصائيات السيرفر')
+            .setDescription('عرض معلومات حماية وإحصائيات السيرفر'),
+
+        new SlashCommandBuilder()
+            .setName('room')
+            .setDescription('الانضمام للروم الصوتي أو مغادرته')
+            .addStringOption(option =>
+                option.setName('action')
+                    .setDescription('اختر الإجراء')
+                    .setRequired(true)
+                    .addChoices(
+                        { name: '🔊 دخول الروم الصوتي والاستماع', value: 'join' },
+                        { name: '🔇 مغادرة الروم الصوتي', value: 'leave' }
+                    )
+            )
     ].map(command => command.toJSON());
 
     const rest = new REST({ version: '10' }).setToken(token);
@@ -398,6 +419,45 @@ client.on('interactionCreate', async interaction => {
         await interaction.reply({
             content: `🏰 **معلومات السيرفر:**\n• اسم السيرفر: **${guild.name}**\n• إجمالي الأعضاء: **${guild.memberCount}**\n• المالك: <@${guild.ownerId}>`
         });
+    }
+    else if (commandName === 'room') {
+        const action = interaction.options.getString('action', true);
+        const member = interaction.member as GuildMember;
+        const voiceChannel = member?.voice?.channel;
+
+        if (action === 'join') {
+            if (!voiceChannel) {
+                await interaction.reply({ content: '❌ يجب أن تكون متواجداً في روم صوتي أولاً ليدخل البوت معك!', ephemeral: true });
+                return;
+            }
+
+            try {
+                const connection = joinVoiceChannel({
+                    channelId: voiceChannel.id,
+                    guildId: voiceChannel.guild.id,
+                    adapterCreator: voiceChannel.guild.voiceAdapterCreator,
+                    selfDeaf: false,
+                    selfMute: false
+                });
+
+                await entersState(connection, VoiceConnectionStatus.Ready, 20000);
+                await interaction.reply({ content: `🔊 تم دخول الروم الصوتي **${voiceChannel.name}** وجاهز للاستماع والحديث!` });
+            } catch (err: any) {
+                console.error(' [Voice Error]:', err);
+                await interaction.reply({ content: '❌ حدث خطأ أثناء الاتصال بالروم الصوتي.', ephemeral: true });
+            }
+        } 
+        else if (action === 'leave') {
+            if (!interaction.guildId) return;
+            const connection = getVoiceConnection(interaction.guildId);
+
+            if (connection) {
+                connection.destroy();
+                await interaction.reply({ content: '🔇 تم مغادرة الروم الصوتي بنجاح.' });
+            } else {
+                await interaction.reply({ content: '❌ البوت غير متواجد في أي روم صوتي حالياً.', ephemeral: true });
+            }
+        }
     }
 });
 
