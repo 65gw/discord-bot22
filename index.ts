@@ -6,17 +6,23 @@ import {
     SlashCommandBuilder, 
     PermissionFlagsBits,
     TextChannel,
-    GuildMember
+    GuildMember,
+    MessageFlags
 } from 'discord.js';
 import { 
     joinVoiceChannel, 
     getVoiceConnection, 
     VoiceConnectionStatus, 
-    entersState 
+    entersState,
+    createAudioPlayer,
+    createAudioResource,
+    AudioPlayerStatus,
+    EndBehaviorType
 } from '@discordjs/voice';
 import axios from 'axios';
 import dotenv from 'dotenv';
 import http from 'http';
+import { Readable } from 'stream';
 
 dotenv.config();
 
@@ -93,6 +99,9 @@ const client = new Client({
         GatewayIntentBits.GuildVoiceStates,
     ],
 });
+
+// مشغل الصوت للروم
+const audioPlayer = createAudioPlayer();
 
 // ==========================================
 // 5. تسجيل أوامر Slash
@@ -328,6 +337,18 @@ function startPeriodicTask(botClient: Client) {
     }, 12 * 60 * 60 * 1000);
 }
 
+// تشغيل الصوت في الروم بصوت رجالي
+async function speakInVoice(connection: any, text: string) {
+    try {
+        const ttsUrl = `https://translate.google.com/translate_tts?ie=UTF-8&q=${encodeURIComponent(text)}&tl=ar&client=tw-ob`;
+        const resource = createAudioResource(ttsUrl);
+        connection.subscribe(audioPlayer);
+        audioPlayer.play(resource);
+    } catch (err) {
+        console.error(' [TTS Play Error]:', err);
+    }
+}
+
 // ==========================================
 // 8. معالجة أوامر الـ Slash
 // ==========================================
@@ -348,9 +369,9 @@ client.on('interactionCreate', async interaction => {
 
         try {
             await targetUser.send(messageText);
-            await interaction.reply({ content: `✅ تم إرسال الرسالة إلى ${targetUser.tag} بنجاح!`, ephemeral: true });
+            await interaction.reply({ content: `✅ تم إرسال الرسالة إلى ${targetUser.tag} بنجاح!`, flags: MessageFlags.Ephemeral });
         } catch (err) {
-            await interaction.reply({ content: `❌ تعذر إرسال رسالة خاصة إلى ${targetUser.tag}.`, ephemeral: true });
+            await interaction.reply({ content: `❌ تعذر إرسال رسالة خاصة إلى ${targetUser.tag}.`, flags: MessageFlags.Ephemeral });
         }
     }
     else if (commandName === 'chat-toggle') {
@@ -378,18 +399,18 @@ client.on('interactionCreate', async interaction => {
         await interaction.reply(`تم ${isAutoTopicsEnabled ? 'تشغيل' : 'إيقاف'} المواضيع التلقائية.`);
     }
     else if (commandName === 'topic-now') {
-        await interaction.reply({ content: 'جاري الإرسال...', ephemeral: true });
+        await interaction.reply({ content: 'جاري الإرسال...', flags: MessageFlags.Ephemeral });
         await triggerRandomTopic(client);
     }
     else if (commandName === 'purge') {
         const amount = interaction.options.getInteger('amount', true);
         if (amount < 1 || amount > 100) {
-            await interaction.reply({ content: 'يرجى إدخال رقم بين 1 و 100.', ephemeral: true });
+            await interaction.reply({ content: 'يرجى إدخال رقم بين 1 و 100.', flags: MessageFlags.Ephemeral });
             return;
         }
         if (interaction.channel && 'bulkDelete' in interaction.channel) {
             await interaction.channel.bulkDelete(amount, true);
-            await interaction.reply({ content: `🧹 تم مسح ${amount} رسالة بنجاح!`, ephemeral: true });
+            await interaction.reply({ content: `🧹 تم مسح ${amount} رسالة بنجاح!`, flags: MessageFlags.Ephemeral });
         }
     }
     else if (commandName === 'kick') {
@@ -425,9 +446,11 @@ client.on('interactionCreate', async interaction => {
         const member = interaction.member as GuildMember;
         const voiceChannel = member?.voice?.channel;
 
+        await interaction.deferReply();
+
         if (action === 'join') {
             if (!voiceChannel) {
-                await interaction.reply({ content: '❌ يجب أن تكون متواجداً في روم صوتي أولاً ليدخل البوت معك!', ephemeral: true });
+                await interaction.editReply({ content: '❌ يجب أن تكون متواجداً في روم صوتي أولاً ليدخل البوت معك!' });
                 return;
             }
 
@@ -441,10 +464,31 @@ client.on('interactionCreate', async interaction => {
                 });
 
                 await entersState(connection, VoiceConnectionStatus.Ready, 20000);
-                await interaction.reply({ content: `🔊 تم دخول الروم الصوتي **${voiceChannel.name}** وجاهز للاستماع والحديث!` });
+                await interaction.editReply({ content: `🔊 تم دخول الروم الصوتي **${voiceChannel.name}** وجاهز للاستماع والحديث!` });
+
+                // استماع حزم الصوت وتجهيز الرد
+                const receiver = connection.receiver;
+                receiver.speaking.on('start', (userId) => {
+                    const audioStream = receiver.subscribe(userId, {
+                        end: {
+                            behavior: EndBehaviorType.AfterSilence,
+                            duration: 1000,
+                        },
+                    });
+
+                    audioStream.on('end', async () => {
+                        const envVipId = (process.env.VIP_USER_ID || '').trim();
+                        const isVIP = (userId === envVipId);
+                        const greeting = isVIP ? 'أهلاً بك يا أبو حرب، سمعتك تتحدث معي!' : 'أهلاً بك، أسمعك الآن.';
+                        
+                        const aiAnswer = await sendQueryToDify(`تفاعل صوتي سريع من العضو: ${greeting}`, userId);
+                        await speakInVoice(connection, aiAnswer);
+                    });
+                });
+
             } catch (err: any) {
                 console.error(' [Voice Error]:', err);
-                await interaction.reply({ content: '❌ حدث خطأ أثناء الاتصال بالروم الصوتي.', ephemeral: true });
+                await interaction.editReply({ content: '❌ حدث خطأ أثناء الاتصال بالروم الصوتي.' });
             }
         } 
         else if (action === 'leave') {
@@ -453,9 +497,9 @@ client.on('interactionCreate', async interaction => {
 
             if (connection) {
                 connection.destroy();
-                await interaction.reply({ content: '🔇 تم مغادرة الروم الصوتي بنجاح.' });
+                await interaction.editReply({ content: '🔇 تم مغادرة الروم الصوتي بنجاح.' });
             } else {
-                await interaction.reply({ content: '❌ البوت غير متواجد في أي روم صوتي حالياً.', ephemeral: true });
+                await interaction.editReply({ content: '❌ البوت غير متواجد في أي روم صوتي حالياً.' });
             }
         }
     }
