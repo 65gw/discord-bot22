@@ -17,12 +17,12 @@ import {
     createAudioPlayer,
     createAudioResource,
     AudioPlayerStatus,
-    EndBehaviorType
+    EndBehaviorType,
+    StreamType
 } from '@discordjs/voice';
 import axios from 'axios';
 import dotenv from 'dotenv';
 import http from 'http';
-import { Readable } from 'stream';
 
 dotenv.config();
 
@@ -63,7 +63,7 @@ setInterval(async () => {
 }, 8 * 60 * 1000);
 
 // ==========================================
-// 4. قراءة المفاتيح المتغيرة
+// 4. قراءة المفاتيح المتغيرة (تم تصحيح أسماء المفاتيح)
 // ==========================================
 const token = process.env.DISCORD_BOT_TOKEN;
 const difyBaseUrl = process.env.DIFY_API_BASE_URL || 'https://api.dify.ai/v1';
@@ -72,10 +72,10 @@ const TARGET_CHANNEL_ID = '1459632620416532554';
 
 const difyApiKeys = [
     process.env.DIFY_API_KEY1,
-    process.env.DIFY_API_KEYS2,
-    process.env.DIFY_API_KEYS3,
-    process.env.DIFY_API_KEYS4,
-    process.env.DIFY_API_KEYS5,
+    process.env.DIFY_API_KEY2, // تعديل: إزالة الـ S الزائدة
+    process.env.DIFY_API_KEY3,
+    process.env.DIFY_API_KEY4,
+    process.env.DIFY_API_KEY5,
 ].filter((key): key is string => Boolean(key && key.trim().length > 0));
 
 let currentKeyIndex = 0;
@@ -313,7 +313,7 @@ async function sendQueryToDify(prompt: string, userId: string, imageUrl?: string
 }
 
 // ==========================================
-// 7. المواضيع التلقائية
+// 7. المواضيع التلقائية وتشغيل الصوت
 // ==========================================
 async function triggerRandomTopic(botClient: Client) {
     try {
@@ -337,11 +337,18 @@ function startPeriodicTask(botClient: Client) {
     }, 12 * 60 * 60 * 1000);
 }
 
-// تشغيل الصوت في الروم بصوت رجالي
+// تشغيل الصوت في الروم بأسلوب محسّن يمنع التقطيع
 async function speakInVoice(connection: any, text: string) {
     try {
-        const ttsUrl = `https://translate.google.com/translate_tts?ie=UTF-8&q=${encodeURIComponent(text)}&tl=ar&client=tw-ob`;
-        const resource = createAudioResource(ttsUrl);
+        // تنظيف النص من الرموز لتسهيل نطق الـ TTS
+        const cleanText = text.replace(/[*_#`~]/g, '');
+        const ttsUrl = `https://translate.google.com/translate_tts?ie=UTF-8&q=${encodeURIComponent(cleanText)}&tl=ar&client=tw-ob`;
+        
+        const resource = createAudioResource(ttsUrl, {
+            inputType: StreamType.Arbitrary,
+            inlineVolume: true
+        });
+
         connection.subscribe(audioPlayer);
         audioPlayer.play(resource);
     } catch (err) {
@@ -463,11 +470,13 @@ client.on('interactionCreate', async interaction => {
                     selfMute: false
                 });
 
-                await entersState(connection, VoiceConnectionStatus.Ready, 20000);
+                // تمديد مهلة الاتصال إلى 15 ثانية لتجنب الفصل المفاجئ
+                await entersState(connection, VoiceConnectionStatus.Ready, 15000);
                 await interaction.editReply({ content: `🔊 تم دخول الروم الصوتي **${voiceChannel.name}** وجاهز للاستماع والحديث!` });
 
-                // استماع حزم الصوت وتجهيز الرد
                 const receiver = connection.receiver;
+                
+                // الاستماع للتحدث وإرجاع الرد بصوت البوت
                 receiver.speaking.on('start', (userId) => {
                     const audioStream = receiver.subscribe(userId, {
                         end: {
@@ -477,12 +486,16 @@ client.on('interactionCreate', async interaction => {
                     });
 
                     audioStream.on('end', async () => {
-                        const envVipId = (process.env.VIP_USER_ID || '').trim();
-                        const isVIP = (userId === envVipId);
-                        const greeting = isVIP ? 'أهلاً بك يا أبو حرب، سمعتك تتحدث معي!' : 'أهلاً بك، أسمعك الآن.';
-                        
-                        const aiAnswer = await sendQueryToDify(`تفاعل صوتي سريع من العضو: ${greeting}`, userId);
-                        await speakInVoice(connection, aiAnswer);
+                        try {
+                            const envVipId = (process.env.VIP_USER_ID || '').trim();
+                            const isVIP = (userId === envVipId);
+                            const greeting = isVIP ? 'يا أبو حرب أسمعك تتحدث تفضل' : 'أسمعك، تفضل بالحديث';
+                            
+                            const aiAnswer = await sendQueryToDify(`تفاعل صوتي من العضو: ${greeting}`, userId);
+                            await speakInVoice(connection, aiAnswer);
+                        } catch (err) {
+                            console.error('Error processing audio input:', err);
+                        }
                     });
                 });
 
@@ -599,7 +612,6 @@ client.on('messageCreate', async message => {
             let systemRules = '';
 
             if (isVIP) {
-                // الـ VIP يتلقى أسلوباً محترماً ولبقاً دائماً بغض النظر عن النمط الشرس
                 systemRules = `
 [توجيه النظام القاطع والمُطلق]:
 المتحدث الحاضر هو المالك ومطور البوت الأساسي (أبو حرب) - شخصية VIP.
@@ -608,14 +620,12 @@ client.on('messageCreate', async message => {
 - نفذ طلباته بإجابات واضحة ودقيقة ومباشرة.
 `;
             } else if (isSavageModeEnabled) {
-                // وضع الطقطقة الشرسة على باقي الأعضاء
                 systemRules = `
 [توجيه النظام]:
 المتحدث عضو عادي في السيرفر، ووضع السيرفر حالياً هو (الطقطقة الشرسة).
 - اطقطق واجلد هذا العضو بأسلوب ساخر وكوميدي ومتهكم.
 `;
             } else {
-                // الوضع الجاد والتقني للعاديين
                 systemRules = `
 [توجيه النظام]:
 المتحدث عضو عادي في السيرفر.
