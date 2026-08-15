@@ -14,12 +14,7 @@ import {
     joinVoiceChannel, 
     getVoiceConnection, 
     VoiceConnectionStatus, 
-    entersState,
-    createAudioPlayer,
-    createAudioResource,
-    AudioPlayerStatus,
-    EndBehaviorType,
-    StreamType
+    entersState
 } from '@discordjs/voice';
 import axios from 'axios';
 import dotenv from 'dotenv';
@@ -64,12 +59,13 @@ setInterval(async () => {
 }, 8 * 60 * 1000);
 
 // ==========================================
-// 4. قراءة المفاتيح المتغيرة
+// 4. الثوابت والمعرفات الأساسية
 // ==========================================
 const token = process.env.DISCORD_BOT_TOKEN;
 const difyBaseUrl = process.env.DIFY_API_BASE_URL || 'https://api.dify.ai/v1';
 
-const TARGET_CHANNEL_ID = '1459632620416532554'; 
+const TARGET_TEXT_CHANNEL_ID = '1459632620416532554'; 
+const TARGET_VOICE_CHANNEL_ID = '1433499015462387895'; 
 
 const difyApiKeys = [
     process.env.DIFY_API_KEY1,
@@ -101,11 +97,44 @@ const client = new Client({
     ],
 });
 
-// مشغل الصوت للروم
-const audioPlayer = createAudioPlayer();
+// دالة الدخول الثابت للروم الصوتي مع إعادة الاتصال التلقائي عند أي ريستارت أو انقطاع
+async function autoConnectVoice(botClient: Client) {
+    try {
+        const channel = await botClient.channels.fetch(TARGET_VOICE_CHANNEL_ID);
+        if (!channel || !channel.isVoiceBased()) {
+            console.log('❌ الروم الصوتي غير موجود أو خطأ في المعرف.');
+            return;
+        }
+
+        const connection = joinVoiceChannel({
+            channelId: channel.id,
+            guildId: channel.guild.id,
+            adapterCreator: channel.guild.voiceAdapterCreator,
+            selfDeaf: false,
+            selfMute: false
+        });
+
+        connection.on(VoiceConnectionStatus.Disconnected, async () => {
+            try {
+                await Promise.race([
+                    entersState(connection, VoiceConnectionStatus.Signalling, 5_000),
+                    entersState(connection, VoiceConnectionStatus.Connecting, 5_000),
+                ]);
+            } catch (error) {
+                connection.destroy();
+                setTimeout(() => autoConnectVoice(botClient), 5_000);
+            }
+        });
+
+        console.log(`🔊 [Voice] البوت متواجد الآن بثبات في الروم الصوتي: ${channel.name}`);
+    } catch (error) {
+        console.error('Error auto connecting to voice channel:', error);
+        setTimeout(() => autoConnectVoice(botClient), 10_000);
+    }
+}
 
 // ==========================================
-// 5. تسجيل أوامر Slash
+// 5. تسجيل أوامر Slash والبدء
 // ==========================================
 client.once('ready', async (readyClient) => {
     console.log(` Logged in as ${readyClient.user.tag}!`);
@@ -119,21 +148,6 @@ client.once('ready', async (readyClient) => {
                     .setDescription('الرسالة')
                     .setRequired(true)
             ),
-
-        new SlashCommandBuilder()
-            .setName('dm')
-            .setDescription('إرسال رسالة خاصة إلى عضو محدد عبر البوت')
-            .addUserOption(option => 
-                option.setName('target')
-                    .setDescription('العضو المستهدف')
-                    .setRequired(true)
-            )
-            .addStringOption(option => 
-                option.setName('message')
-                    .setDescription('محتوى الرسالة')
-                    .setRequired(true)
-            ),
-
         new SlashCommandBuilder()
             .setName('chat-toggle')
             .setDescription('تشغيل أو إيقاف رد البوت التلقائي في الشات')
@@ -146,95 +160,18 @@ client.once('ready', async (readyClient) => {
                         { name: '🔴 إيقاف الردود بالشات', value: 'disable' }
                     )
             ),
-
-        new SlashCommandBuilder()
-            .setName('mod')
-            .setDescription('التحكم بشخصية البوت (هل يتصرف كـ إنسان أم كـ بوت؟)')
-            .addStringOption(option =>
-                option.setName('persona')
-                    .setDescription('اختر أسلوب الشخصية')
-                    .setRequired(true)
-                    .addChoices(
-                        { name: '👤 إنسان حقيقي (لا يعترف بكونه بوت)', value: 'human' },
-                        { name: '🤖 بوت ذكي (يعترف بكونه برنامج/بوت)', value: 'bot' }
-                    )
-            ),
-
-        new SlashCommandBuilder()
-            .setName('bot-mode')
-            .setDescription('التحكم في نمط الرد وطريقة التعامل')
-            .addStringOption(option =>
-                option.setName('mode')
-                    .setDescription('اختر نمط التعامل')
-                    .setRequired(true)
-                    .addChoices(
-                        { name: '🔥 شرس وطقطقة (Savage) - يطقطق على الكل ويحترم VIP', value: 'savage' },
-                        { name: '🤖 جاد وتقني (Technical) - أسلوب رسمي ومحترم مع الجميع', value: 'polite' }
-                    )
-            ),
-
-        new SlashCommandBuilder()
-            .setName('auto-topics')
-            .setDescription('تشغيل/إيقاف المواضيع التلقائية')
-            .addStringOption(option =>
-                option.setName('status')
-                    .setDescription('الحالة')
-                    .setRequired(true)
-                    .addChoices(
-                        { name: 'تشغيل (كل 12 ساعة)', value: 'enable' },
-                        { name: 'إيقاف نهائي', value: 'disable' }
-                    )
-            ),
-
         new SlashCommandBuilder()
             .setName('topic-now')
-            .setDescription('طرح موضوع فوري'),
-
+            .setDescription('طرح موضوع فوري في الشات المحدد'),
         new SlashCommandBuilder()
             .setName('purge')
-            .setDescription('مسح عدد معين من الرسائل للحماية')
+            .setDescription('مسح عدد معين من الرسائل')
             .addIntegerOption(option => 
                 option.setName('amount')
                     .setDescription('عدد الرسائل (1-100)')
                     .setRequired(true)
             )
-            .setDefaultMemberPermissions(PermissionFlagsBits.ManageMessages),
-
-        new SlashCommandBuilder()
-            .setName('kick')
-            .setDescription('طرد عضو مخالف من السيرفر')
-            .addUserOption(option => option.setName('user').setDescription('العضو').setRequired(true))
-            .addStringOption(option => option.setName('reason').setDescription('السبب'))
-            .setDefaultMemberPermissions(PermissionFlagsBits.KickMembers),
-
-        new SlashCommandBuilder()
-            .setName('ban')
-            .setDescription('حظر عضو مخالف من السيرفر')
-            .addUserOption(option => option.setName('user').setDescription('العضو').setRequired(true))
-            .addStringOption(option => option.setName('reason').setDescription('السبب'))
-            .setDefaultMemberPermissions(PermissionFlagsBits.BanMembers),
-
-        new SlashCommandBuilder()
-            .setName('user-info')
-            .setDescription('عرض معلومات عن مستخدم')
-            .addUserOption(option => option.setName('target').setDescription('المستخدم')),
-
-        new SlashCommandBuilder()
-            .setName('server-info')
-            .setDescription('عرض معلومات حماية وإحصائيات السيرفر'),
-
-        new SlashCommandBuilder()
-            .setName('room')
-            .setDescription('الانضمام للروم الصوتي أو مغادرته')
-            .addStringOption(option =>
-                option.setName('action')
-                    .setDescription('اختر الإجراء')
-                    .setRequired(true)
-                    .addChoices(
-                        { name: '🔊 دخول الروم الصوتي والاستماع', value: 'join' },
-                        { name: '🔇 مغادرة الروم الصوتي', value: 'leave' }
-                    )
-            )
+            .setDefaultMemberPermissions(PermissionFlagsBits.ManageMessages)
     ].map(command => command.toJSON());
 
     const rest = new REST({ version: '10' }).setToken(token);
@@ -244,28 +181,25 @@ client.once('ready', async (readyClient) => {
             Routes.applicationCommands(readyClient.user.id),
             { body: commands },
         );
-        console.log('✅ تم تسجيل جميع أوامر الـ Slash بنجاح!');
+        console.log('✅ تم تسجيل أوامر الـ Slash بنجاح!');
     } catch (error) {
         console.error('Error registering slash commands:', error);
     }
 
     startPeriodicTask(readyClient);
+    
+    // الانضمام الفوري للروم الصوتي الثابت
+    await autoConnectVoice(readyClient);
 });
 
 // ==========================================
-// 6. الاتصال بـ Dify مع دعم الـ Vision وتمديد الـ Timeout
+// 6. الاتصال بـ Dify
 // ==========================================
 async function sendQueryToDify(prompt: string, userId: string, imageUrl?: string): Promise<string> {
     const totalKeys = difyApiKeys.length;
     let attempts = 0;
 
-    const files = imageUrl ? [
-        {
-            type: 'image',
-            transfer_method: 'remote_url',
-            url: imageUrl
-        }
-    ] : [];
+    const files = imageUrl ? [{ type: 'image', transfer_method: 'remote_url', url: imageUrl }] : [];
 
     while (attempts < totalKeys) {
         const keyToUse = difyApiKeys[currentKeyIndex];
@@ -279,9 +213,7 @@ async function sendQueryToDify(prompt: string, userId: string, imageUrl?: string
                 user: userId,
             };
 
-            if (files.length > 0) {
-                payload.files = files;
-            }
+            if (files.length > 0) payload.files = files;
 
             const response = await axios.post(
                 `${difyBaseUrl}/chat-messages`,
@@ -298,27 +230,25 @@ async function sendQueryToDify(prompt: string, userId: string, imageUrl?: string
             let answer = response.data.answer;
             if (answer && answer.trim().length > 0) {
                 const lines = answer.trim().split('\n').filter(line => line.trim().length > 0);
-                if (lines.length > 3 && !prompt.includes('برمجة') && !prompt.includes('كود')) {
+                if (lines.length > 3 && !prompt.includes('برمجة')) {
                     answer = lines.slice(0, 3).join('\n');
                 }
                 return answer;
             }
         } catch (error: any) {
-            console.error(` [Dify Error Key ${currentKeyIndex}]:`, error.response?.data || error.message);
+            console.error(` [Dify Error]:`, error.response?.data || error.message);
         }
-
         attempts++;
     }
-
     return 'حدث خطأ في الاتصال بالنظام، يرجى المحاولة لاحقاً.';
 }
 
 // ==========================================
-// 7. المواضيع التلقائية وتشغيل الصوت
+// 7. المواضيع التلقائية (كل 12 ساعة)
 // ==========================================
 async function triggerRandomTopic(botClient: Client) {
     try {
-        const channel = await botClient.channels.fetch(TARGET_CHANNEL_ID);
+        const channel = await botClient.channels.fetch(TARGET_TEXT_CHANNEL_ID);
         if (channel && channel.isTextBased()) {
             const randomPrompt = `اطرح موضوعاً عشوائياً وغريباً بنص قصير جداً (سطر واحد فقط). ممنوع المقدمات أو الترحيب.`;
             const answer = await sendQueryToDify(randomPrompt, 'cron_12h_system');
@@ -338,24 +268,6 @@ function startPeriodicTask(botClient: Client) {
     }, 12 * 60 * 60 * 1000);
 }
 
-// تشغيل الصوت في الروم بأسلوب محسّن يمنع التقطيع
-async function speakInVoice(connection: any, text: string) {
-    try {
-        const cleanText = text.replace(/[*_#`~]/g, '');
-        const ttsUrl = `https://translate.google.com/translate_tts?ie=UTF-8&q=${encodeURIComponent(cleanText)}&tl=ar&client=tw-ob`;
-        
-        const resource = createAudioResource(ttsUrl, {
-            inputType: StreamType.Arbitrary,
-            inlineVolume: true
-        });
-
-        connection.subscribe(audioPlayer);
-        audioPlayer.play(resource);
-    } catch (err) {
-        console.error(' [TTS Play Error]:', err);
-    }
-}
-
 // ==========================================
 // 8. معالجة أوامر الـ Slash
 // ==========================================
@@ -369,184 +281,34 @@ client.on('interactionCreate', async interaction => {
         await interaction.deferReply();
         const answer = await sendQueryToDify(prompt, interaction.user.id);
         await interaction.editReply(answer);
-    } 
-    else if (commandName === 'dm') {
-        const targetUser = interaction.options.getUser('target', true);
-        const messageText = interaction.options.getString('message', true);
-
-        try {
-            await targetUser.send(messageText);
-            await interaction.reply({ content: `✅ تم إرسال الرسالة إلى ${targetUser.tag} بنجاح!`, flags: MessageFlags.Ephemeral });
-        } catch (err) {
-            await interaction.reply({ content: `❌ تعذر إرسال رسالة خاصة إلى ${targetUser.tag}.`, flags: MessageFlags.Ephemeral });
-        }
     }
     else if (commandName === 'chat-toggle') {
         const status = interaction.options.getString('status', true);
         isChatRespondingEnabled = (status === 'enable');
-        await interaction.reply({
-            content: `📢 تم **${isChatRespondingEnabled ? 'تفعيل 🟢' : 'إيقاف 🔴'}** ردود البوت التلقائية في الشات.`
-        });
-    }
-    else if (commandName === 'mod') {
-        const persona = interaction.options.getString('persona', true);
-        isHumanPersona = (persona === 'human');
-        await interaction.reply({
-            content: `🎭 تم تغيير هُوية وشخصية البوت إلى: **${isHumanPersona ? '👤 إنسان حقيقي' : '🤖 بوت ذكاء اصطناعي'}**`
-        });
-    }
-    else if (commandName === 'bot-mode') {
-        const mode = interaction.options.getString('mode', true);
-        isSavageModeEnabled = (mode === 'savage');
-        await interaction.reply(`🤖 تم تغيير نمط البوت إلى: **${isSavageModeEnabled ? 'النمط الشرس وطقطقة (Savage Mode) - مفعّل على باقي الأعضاء مع احترام VIP' : 'النمط الجاد والتقني (Technical Mode)'}**`);
-    }
-    else if (commandName === 'auto-topics') {
-        const status = interaction.options.getString('status', true);
-        isAutoTopicsEnabled = (status === 'enable');
-        await interaction.reply(`تم ${isAutoTopicsEnabled ? 'تشغيل' : 'إيقاف'} المواضيع التلقائية.`);
+        await interaction.reply({ content: `📢 تم **${isChatRespondingEnabled ? 'تفعيل 🟢' : 'إيقاف 🔴'}** الردود.` });
     }
     else if (commandName === 'topic-now') {
-        await interaction.reply({ content: 'جاري الإرسال...', flags: MessageFlags.Ephemeral });
+        await interaction.reply({ content: 'جاري نشر الموضوع فوراً...', flags: MessageFlags.Ephemeral });
         await triggerRandomTopic(client);
     }
     else if (commandName === 'purge') {
         const amount = interaction.options.getInteger('amount', true);
-        if (amount < 1 || amount > 100) {
-            await interaction.reply({ content: 'يرجى إدخال رقم بين 1 و 100.', flags: MessageFlags.Ephemeral });
-            return;
-        }
         if (interaction.channel && 'bulkDelete' in interaction.channel) {
             await interaction.channel.bulkDelete(amount, true);
             await interaction.reply({ content: `🧹 تم مسح ${amount} رسالة بنجاح!`, flags: MessageFlags.Ephemeral });
         }
     }
-    else if (commandName === 'kick') {
-        const user = interaction.options.getUser('user', true);
-        const reason = interaction.options.getString('reason') || 'بدون سبب مذكور';
-        const member = await interaction.guild?.members.fetch(user.id);
-        if (member) {
-            await member.kick(reason);
-            await interaction.reply({ content: `👞 تم طرد العضو ${user.tag} السبب: ${reason}` });
-        }
-    }
-    else if (commandName === 'ban') {
-        const user = interaction.options.getUser('user', true);
-        const reason = interaction.options.getString('reason') || 'بدون سبب مذكور';
-        await interaction.guild?.members.ban(user.id, { reason });
-        await interaction.reply({ content: `🔨 تم حظر العضو ${user.tag} السبب: ${reason}` });
-    }
-    else if (commandName === 'user-info') {
-        const user = interaction.options.getUser('target') || interaction.user;
-        await interaction.reply({
-            content: `👤 **معلومات المستخدم:**\n• الاسم: **${user.tag}**\n• الـ ID: \`${user.id}\`\n• تاريخ إنشاء الحساب: <t:${Math.floor(user.createdTimestamp / 1000)}:R>`
-        });
-    }
-    else if (commandName === 'server-info') {
-        const guild = interaction.guild;
-        if (!guild) return;
-        await interaction.reply({
-            content: `🏰 **معلومات السيرفر:**\n• اسم السيرفر: **${guild.name}**\n• إجمالي الأعضاء: **${guild.memberCount}**\n• المالك: <@${guild.ownerId}>`
-        });
-    }
-    else if (commandName === 'room') {
-        const action = interaction.options.getString('action', true);
-        const member = interaction.member as GuildMember;
-        const voiceChannel = member?.voice?.channel;
-
-        await interaction.deferReply();
-
-        if (action === 'join') {
-            if (!voiceChannel) {
-                await interaction.editReply({ content: '❌ يجب أن تكون متواجداً في روم صوتي أولاً ليدخل البوت معك!' });
-                return;
-            }
-
-            try {
-                // ضبط الاتصال الصوتي مع adapterCreator الصريح وتجنب الأخطاء
-                const connection = joinVoiceChannel({
-                    channelId: voiceChannel.id,
-                    guildId: voiceChannel.guild.id,
-                    adapterCreator: voiceChannel.guild.voiceAdapterCreator,
-                    selfDeaf: false,
-                    selfMute: false
-                });
-
-                // تمديد مهلة الاتصال إلى 60 ثانية لتجنب AbortError تماماً على Render
-                await entersState(connection, VoiceConnectionStatus.Ready, 60_000);
-                await interaction.editReply({ content: `🔊 تم دخول الروم الصوتي **${voiceChannel.name}** وجاهز للاستماع والحديث!` });
-
-                const receiver = connection.receiver;
-                
-                receiver.speaking.on('start', (userId) => {
-                    const audioStream = receiver.subscribe(userId, {
-                        end: {
-                            behavior: EndBehaviorType.AfterSilence,
-                            duration: 1000,
-                        },
-                    });
-
-                    audioStream.on('end', async () => {
-                        try {
-                            const envVipId = (process.env.VIP_USER_ID || '').trim();
-                            const isVIP = (userId === envVipId);
-                            const greeting = isVIP ? 'يا أبو حرب أسمعك تتحدث تفضل' : 'أسمعك، تفضل بالحديث';
-                            
-                            const aiAnswer = await sendQueryToDify(`تفاعل صوتي من العضو: ${greeting}`, userId);
-                            await speakInVoice(connection, aiAnswer);
-                        } catch (err) {
-                            console.error('Error processing audio input:', err);
-                        }
-                    });
-                });
-
-            } catch (err: any) {
-                console.error(' [Voice Error]:', err);
-                await interaction.editReply({ content: '❌ حدث خطأ أثناء الاتصال بالروم الصوتي.' });
-            }
-        } 
-        else if (action === 'leave') {
-            if (!interaction.guildId) return;
-            const connection = getVoiceConnection(interaction.guildId);
-
-            if (connection) {
-                connection.destroy();
-                await interaction.editReply({ content: '🔇 تم مغادرة الروم الصوتي بنجاح.' });
-            } else {
-                await interaction.editReply({ content: '❌ البوت غير متواجد في أي روم صوتي حالياً.' });
-            }
-        }
-    }
 });
 
 // ==========================================
-// 9. معالجة الرسائل والتحليل الذكي والتعامل مع VIP
+// 9. معالجة الرسائل والرد في الشات المحدد
 // ==========================================
 client.on('messageCreate', async message => {
     try {
         if (message.author.bot) return;
         if (!isChatRespondingEnabled) return;
 
-        const envVipId = (process.env.VIP_USER_ID || '').trim();
-        const envVipName = (process.env.VIP_USERNAME || '').trim().toLowerCase();
-
-        const isVIP = (envVipId.length > 0 && message.author.id === envVipId) || 
-                    (envVipName.length > 0 && message.author.username.toLowerCase() === envVipName);
-
-        const contentLower = message.content.trim().toLowerCase();
-
-        const mentionedVip = envVipId && message.mentions.users.has(envVipId);
-        if (mentionedVip && !isVIP) {
-            await message.reply('أبو حرب غير متفرغ حالياً.');
-            return;
-        }
-
-        const isGreeting = ['السلام عليكم', 'سلام عليكم'].some(g => contentLower.includes(g));
-        if (isGreeting) {
-            await message.reply(isVIP ? 'وعليكم السلام يا أبو حرب، أهلاً بك وسهلاً.' : 'وعليكم السلام.');
-            return;
-        }
-
-        const isTargetChannel = message.channelId === TARGET_CHANNEL_ID;
+        const isTargetChannel = message.channelId === TARGET_TEXT_CHANNEL_ID;
         const isBotMentioned = client.user && message.mentions.has(client.user);
 
         if (isTargetChannel || isBotMentioned) {
@@ -556,86 +318,11 @@ client.on('messageCreate', async message => {
                 cleanPrompt = cleanPrompt.replace(mentionRegex, '').trim();
             }
 
-            let targetImageUrl: string | undefined = undefined;
-            let imageTypeContext = '';
-
-            if (message.stickers.size > 0) {
-                const sticker = message.stickers.first();
-                targetImageUrl = `https://media.discordapp.net/stickers/${sticker?.id}.png`;
-                imageTypeContext = `[نوع المرفق: ستيكر دسكورد تعبيري بعنوان "${sticker?.name}"]`;
-            }
-            else if (message.attachments.size > 0) {
-                const attachment = message.attachments.first();
-                targetImageUrl = attachment?.url;
-                const isGif = attachment?.contentType?.includes('gif') || attachment?.url.endsWith('.gif');
-                imageTypeContext = isGif ? `[نوع المرفق: صورة متحركة GIF]` : `[نوع المرفق: صورة مرفقة بالشات]`;
-            } 
-            else if (cleanPrompt.includes('افتار') || cleanPrompt.includes('الافتار') || cleanPrompt.includes('صورة الحساب')) {
-                const mentionedUser = message.mentions.users.first();
-                const targetUser = mentionedUser || message.author;
-                targetImageUrl = targetUser.displayAvatarURL({ extension: 'png', size: 512, forceStatic: true });
-                imageTypeContext = `[نوع المرفق: أفتار للمستخدم ${targetUser.username}]`;
-            }
-
-            if (!cleanPrompt && !targetImageUrl) {
-                await message.reply(isVIP ? 'سم يا أبو حرب، أستمع لك وتحت أمرك.' : 'هلا بك.');
-                return;
-            }
+            if (!cleanPrompt) return;
 
             await message.channel.sendTyping();
-
-            let chatHistoryContext = "";
-            try {
-                const fetchedMessages = await message.channel.messages.fetch({ limit: 5 });
-                const historyList = fetchedMessages
-                    .reverse()
-                    .filter(m => m.id !== message.id)
-                    .map(m => `[${m.author.username}]: ${m.content}`)
-                    .join("\n");
-
-                if (historyList.trim().length > 0) {
-                    chatHistoryContext = `[سجل المحادثة السابقة]:\n${historyList}\n---`;
-                }
-            } catch (err) {
-                console.error("خطأ في جلب سجل المحادثة:", err);
-            }
-
-            const personaInstruction = isHumanPersona 
-                ? 'تصرّف وتكلّم كأنك شخص حقيقي وعضو متفاعل في السيرفر.'
-                : 'تصرّف وتكلّم بوضوح كأنك بوت ذكاء اصطناعي.';
-
-            let systemRules = '';
-
-            if (isVIP) {
-                systemRules = `
-[توجيه النظام القاطع والمُطلق]:
-المتحدث الحاضر هو المالك ومطور البوت الأساسي (أبو حرب) - شخصية VIP.
-- أظهر له احتراماً كاملاً، ووقاراً، وأسلوباً لبقاً وخادماً جداً.
-- يمنع منعاً باتاً الطقطقة عليه أو السخرية منه أو المزاح غير اللائق تحت أي ظرف.
-- نفذ طلباته بإجابات واضحة ودقيقة ومباشرة.
-`;
-            } else if (isSavageModeEnabled) {
-                systemRules = `
-[توجيه النظام]:
-المتحدث عضو عادي في السيرفر، ووضع السيرفر حالياً هو (الطقطقة الشرسة).
-- اطقطق واجلد هذا العضو بأسلوب ساخر وكوميدي ومتهكم.
-`;
-            } else {
-                systemRules = `
-[توجيه النظام]:
-المتحدث عضو عادي في السيرفر.
-- جاوب على سؤاله بأسلوب جاد، واضح، ومباشر بدون طقطقة.
-`;
-            }
-
-            const fullPrompt = `${systemRules}
-[الأسلوب]: ${personaInstruction}
-${chatHistoryContext}
-${imageTypeContext}
-المرسل: ${message.author.username}
-نص الرسالة: ${cleanPrompt || 'أرسل هذا المرفق'}`;
-
-            const answer = await sendQueryToDify(fullPrompt, message.author.id, targetImageUrl);
+            const fullPrompt = `المرسل: ${message.author.username}\nنص الرسالة: ${cleanPrompt}`;
+            const answer = await sendQueryToDify(fullPrompt, message.author.id);
             await message.reply(answer);
         }
     } catch (error) {
