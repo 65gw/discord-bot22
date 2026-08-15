@@ -64,7 +64,7 @@ setInterval(async () => {
 }, 8 * 60 * 1000);
 
 // ==========================================
-// 4. قراءة المفاتيح المتغيرة (تم تصحيح أسماء المفاتيح)
+// 4. قراءة المفاتيح المتغيرة
 // ==========================================
 const token = process.env.DISCORD_BOT_TOKEN;
 const difyBaseUrl = process.env.DIFY_API_BASE_URL || 'https://api.dify.ai/v1';
@@ -73,7 +73,7 @@ const TARGET_CHANNEL_ID = '1459632620416532554';
 
 const difyApiKeys = [
     process.env.DIFY_API_KEY1,
-    process.env.DIFY_API_KEY2, // تعديل: إزالة الـ S الزائدة
+    process.env.DIFY_API_KEY2,
     process.env.DIFY_API_KEY3,
     process.env.DIFY_API_KEY4,
     process.env.DIFY_API_KEY5,
@@ -341,7 +341,6 @@ function startPeriodicTask(botClient: Client) {
 // تشغيل الصوت في الروم بأسلوب محسّن يمنع التقطيع
 async function speakInVoice(connection: any, text: string) {
     try {
-        // تنظيف النص من الرموز لتسهيل نطق الـ TTS
         const cleanText = text.replace(/[*_#`~]/g, '');
         const ttsUrl = `https://translate.google.com/translate_tts?ie=UTF-8&q=${encodeURIComponent(cleanText)}&tl=ar&client=tw-ob`;
         
@@ -463,6 +462,7 @@ client.on('interactionCreate', async interaction => {
             }
 
             try {
+                // ضبط الاتصال الصوتي مع adapterCreator الصريح وتجنب الأخطاء
                 const connection = joinVoiceChannel({
                     channelId: voiceChannel.id,
                     guildId: voiceChannel.guild.id,
@@ -471,13 +471,12 @@ client.on('interactionCreate', async interaction => {
                     selfMute: false
                 });
 
-                // تمديد مهلة الاتصال إلى 15 ثانية لتجنب الفصل المفاجئ
-                await entersState(connection, VoiceConnectionStatus.Ready, 15000);
+                // تمديد مهلة الاتصال إلى 30 ثانية لتجنب AbortError تماماً على Render
+                await entersState(connection, VoiceConnectionStatus.Ready, 30000);
                 await interaction.editReply({ content: `🔊 تم دخول الروم الصوتي **${voiceChannel.name}** وجاهز للاستماع والحديث!` });
 
                 const receiver = connection.receiver;
                 
-                // الاستماع للتحدث وإرجاع الرد بصوت البوت
                 receiver.speaking.on('start', (userId) => {
                     const audioStream = receiver.subscribe(userId, {
                         end: {
@@ -530,20 +529,17 @@ client.on('messageCreate', async message => {
         const envVipId = (process.env.VIP_USER_ID || '').trim();
         const envVipName = (process.env.VIP_USERNAME || '').trim().toLowerCase();
 
-        // التحقق القاطع من الـ VIP
         const isVIP = (envVipId.length > 0 && message.author.id === envVipId) || 
-                      (envVipName.length > 0 && message.author.username.toLowerCase() === envVipName);
+                    (envVipName.length > 0 && message.author.username.toLowerCase() === envVipName);
 
         const contentLower = message.content.trim().toLowerCase();
 
-        // حماية عند منشنة الـ VIP بواسطة باقي الأعضاء
         const mentionedVip = envVipId && message.mentions.users.has(envVipId);
         if (mentionedVip && !isVIP) {
             await message.reply('أبو حرب غير متفرغ حالياً.');
             return;
         }
 
-        // ردود السلام السريعة
         const isGreeting = ['السلام عليكم', 'سلام عليكم'].some(g => contentLower.includes(g));
         if (isGreeting) {
             await message.reply(isVIP ? 'وعليكم السلام يا أبو حرب، أهلاً بك وسهلاً.' : 'وعليكم السلام.');
@@ -588,7 +584,6 @@ client.on('messageCreate', async message => {
 
             await message.channel.sendTyping();
 
-            // جلب سجل المحادثة للربط الذكي
             let chatHistoryContext = "";
             try {
                 const fetchedMessages = await message.channel.messages.fetch({ limit: 5 });
@@ -609,7 +604,6 @@ client.on('messageCreate', async message => {
                 ? 'تصرّف وتكلّم كأنك شخص حقيقي وعضو متفاعل في السيرفر.'
                 : 'تصرّف وتكلّم بوضوح كأنك بوت ذكاء اصطناعي.';
 
-            // التوجيه الصارم حسب رتبة المستخدم والنمط المفعل
             let systemRules = '';
 
             if (isVIP) {
