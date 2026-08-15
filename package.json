@@ -15,9 +15,11 @@
   "dependencies": {
     "@discordjs/builders": "^1.7.0",
     "@discordjs/rest": "^2.2.0",
+    "@discordjs/voice": "^0.17.0",
     "axios": "^1.6.5",
     "discord.js": "^14.14.1",
     "dotenv": "^16.3.1",
+    "sodium-native": "^4.1.1",
     "standard-version": "^9.5.0",
     "typescript": "^5.3.3"
   },
