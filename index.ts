@@ -10,6 +10,12 @@ import {
     GuildMember,
     MessageFlags
 } from 'discord.js';
+import { 
+    joinVoiceChannel, 
+    VoiceConnectionStatus, 
+    entersState, 
+    getVoiceConnection 
+} from '@discordjs/voice';
 import axios from 'axios';
 import dotenv from 'dotenv';
 import http from 'http';
@@ -28,19 +34,19 @@ process.on('uncaughtException', (err) => {
 });
 
 // ==========================================
-// 2. سيرفر الويب لخدمة Render
+// 2. سيرفر الويب لخدمة Render (حماية من الإغلاق)
 // ==========================================
 const PORT = process.env.PORT || 3000;
 http.createServer((req, res) => {
     res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8' });
-    res.write('Red John Bot is Online & Hunting!');
+    res.write('Red John Bot is Online, Voice Connected & Hunting!');
     res.end();
 }).listen(PORT, () => {
     console.log(` [Server] Listening on port ${PORT}`);
 });
 
 // ==========================================
-// 3. نظام Keep-Alive
+// 3. نظام Keep-Alive لمنع نوم السيرفر
 // ==========================================
 const RENDER_URL = process.env.RENDER_EXTERNAL_URL || 'https://discord-bot22-8aow.onrender.com';
 setInterval(async () => {
@@ -49,7 +55,7 @@ setInterval(async () => {
     } catch (err: any) {
         console.error(' [Keep-Alive] Ping fail:', err.message);
     }
-}, 8 * 60 * 1000);
+}, 5 * 60 * 1000); // بينج كل 5 دقائق
 
 // ==========================================
 // 4. الثوابت والمفاتيح
@@ -57,6 +63,7 @@ setInterval(async () => {
 const token = process.env.DISCORD_BOT_TOKEN;
 const difyBaseUrl = process.env.DIFY_API_BASE_URL || 'https://api.dify.ai/v1';
 const TARGET_TEXT_CHANNEL_ID = '1459632620416532554'; 
+const TARGET_VOICE_CHANNEL_ID = '1433499015462387895'; // آيدي الروم الصوتي المطلوبة
 
 const difyApiKeys = [
     process.env.DIFY_API_KEY1,
@@ -82,6 +89,7 @@ const client = new Client({
         GatewayIntentBits.GuildMessages,
         GatewayIntentBits.MessageContent,
         GatewayIntentBits.GuildMembers,
+        GatewayIntentBits.GuildVoiceStates, // ضروري لاتصال الصوت
     ],
 });
 
@@ -137,16 +145,87 @@ async function sendQueryToDify(prompt: string, userId: string, imageUrl?: string
 }
 
 // ==========================================
-// 6. تسجيل البوت وتجهيز الأوامر
+// 6. نظام الاتصال الصوتي العنيد (Anti-Kick & Always Online)
+// ==========================================
+async function ensureVoiceConnection() {
+    try {
+        const voiceChannel = await client.channels.fetch(TARGET_VOICE_CHANNEL_ID).catch(() => null);
+        if (!voiceChannel || !voiceChannel.isVoiceBased()) {
+            console.error('❌ لم يتم العثور على الروم الصوتي المحدد!');
+            return;
+        }
+
+        const existingConnection = getVoiceConnection(voiceChannel.guild.id);
+        
+        // إذا كان متصلاً بالفعل ونفس الروم، لا تفعل شيء
+        if (existingConnection && existingConnection.joinConfig.channelId === TARGET_VOICE_CHANNEL_ID) {
+            if (existingConnection.state.status === VoiceConnectionStatus.Ready) {
+                return;
+            }
+        }
+
+        console.log(`🔊 جاري الاتصال بالروم الصوتي: ${voiceChannel.name} (${voiceChannel.id})...`);
+
+        const connection = joinVoiceChannel({
+            channelId: TARGET_VOICE_CHANNEL_ID,
+            guildId: voiceChannel.guild.id,
+            adapterCreator: voiceChannel.guild.voiceAdapterCreator,
+            selfDeaf: true,
+            selfMute: false,
+        });
+
+        connection.on(VoiceConnectionStatus.Disconnected, async () => {
+            try {
+                await Promise.race([
+                    entersState(connection, VoiceConnectionStatus.Signalling, 5_000),
+                    entersState(connection, VoiceConnectionStatus.Connecting, 5_000),
+                ]);
+            } catch (error) {
+                console.log('⚠️ تم فصل البوت من الصوت، جاري إعادة الاتصال التلقائي...');
+                try { connection.destroy(); } catch (e) {}
+                setTimeout(() => ensureVoiceConnection(), 2000);
+            }
+        });
+
+        connection.on(VoiceConnectionStatus.Destroyed, () => {
+            setTimeout(() => ensureVoiceConnection(), 2000);
+        });
+
+    } catch (error) {
+        console.error(' Error in ensureVoiceConnection:', error);
+    }
+}
+
+// ==========================================
+// 7. تسجيل البوت وتجهيز المهام
 // ==========================================
 client.once('ready', async (readyClient) => {
     console.log(` Red John Bot is Ready as ${readyClient.user.tag}!`);
 
+    // 1. الدخول للروم الصوتي فور تشغيل البوت
+    await ensureVoiceConnection();
+
+    // 2. فحص دوري كل 15 ثانية للتأكد من التواجد بالروم الصوتي وعدم الطرد
+    setInterval(() => {
+        ensureVoiceConnection();
+    }, 15000);
+
     startPeriodicTask(readyClient);
 });
 
+// مراقبة طرد البوت أو نقله من الروم وإعادته فوراً
+client.on('voiceStateUpdate', (oldState, newState) => {
+    if (oldState.member?.id === client.user?.id) {
+        // لو انفصل أو انتقل لروم غير الروم المستهدفة
+        if (newState.channelId !== TARGET_VOICE_CHANNEL_ID) {
+            console.log('⚡ تم طرد أو نقل البوت، جاري إعادة اقتحام الروم الصوتي...');
+            setTimeout(() => ensureVoiceConnection(), 1500);
+        }
+    }
+});
+
 // ==========================================
-// 7. المواضيع التلقائية الساخرة (كل 12 ساعة)
+// 8. المواضيع التلقائية الساخرة (كل 12 ساعة)
 // ==========================================
 async function triggerRandomTopic(botClient: Client) {
     try {
@@ -171,7 +250,7 @@ function startPeriodicTask(botClient: Client) {
 }
 
 // ==========================================
-// 8. المحرك الرئيسي: الاستجابة للشات + تحليل آخر 5 رسائل + سحب الافتارات تلقائياً
+// 9. الاستجابة للشات + تحليل آخر 5 رسائل + سحب الافتارات تلقائياً
 // ==========================================
 client.on('messageCreate', async message => {
     try {
@@ -183,12 +262,12 @@ client.on('messageCreate', async message => {
         if (isTargetChannel || isBotMentioned) {
             await message.channel.sendTyping();
 
-            // 1. جلب وتحليل آخر 5 رسائل من الشات لمعرفة السياق قبل الرد
+            // 1. جلب وتحليل آخر 5 رسائل من الشات لمعرفة السياق
             let chatHistoryContext = '';
             try {
-                const fetchedMessages = await message.channel.messages.fetch({ limit: 6 }); // جلب الرسالة الحالية + 5 سابقات
+                const fetchedMessages = await message.channel.messages.fetch({ limit: 6 });
                 const last5 = Array.from(fetchedMessages.values())
-                    .filter(m => m.id !== message.id) // استبعاد الرسالة الحالية
+                    .filter(m => m.id !== message.id)
                     .reverse()
                     .slice(-5)
                     .map(m => `${m.author.username}: ${m.content}`)
@@ -206,16 +285,15 @@ client.on('messageCreate', async message => {
             let mentionDetails = '';
 
             if (message.mentions.users.size > 0) {
-                // البحث عن أول شخص ممنشن (وليس البوت نفسه)
                 const mentionedUser = message.mentions.users.find(u => u.id !== client.user?.id);
                 if (mentionedUser) {
                     targetAvatarUrl = mentionedUser.displayAvatarURL({ extension: 'png', size: 512 });
-                    mentionDetails = `[ملاحظة: المنسل/المستهدف هو ${mentionedUser.username} وافتاره مرفق لك لتطقطق وتجلد افتاره كـ ذبة!]`;
+                    mentionDetails = `[ملاحظة: المستهدف هو ${mentionedUser.username} وافتاره مرفق لك لتطقطق وتجلد افتاره كـ ذبة!]`;
                 }
             }
 
             // 3. فحص الاستيكرات، الصور، والـ GIFs
-            let mediaUrl = targetAvatarUrl; // الافتار له الأولوية إذا تم المنشن
+            let mediaUrl = targetAvatarUrl;
             let mediaNotice = mentionDetails;
 
             if (!mediaUrl && message.stickers.size > 0) {
