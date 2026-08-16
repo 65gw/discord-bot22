@@ -118,23 +118,22 @@ async function playTTSSpeech(connection: any, text: string) {
             .replace(/https?:\/\/\S+/g, 'رابط')
             .trim();
 
-        const speechText = cleanedText.slice(0, 200); 
+        const speechText = cleanedText.slice(0, 250); 
         if (!speechText) return;
 
-        const ttsUrl = `https://translate.google.com/translate_tts?ie=UTF-8&q=${encodeURIComponent(speechText)}&tl=ar&client=tw-ob`;
+        // استخدام مزود صوتي سحابي لا يحجب سيرفرات Render
+        const ttsUrl = `https://api.streamelements.com/kappa/v2/speech?voice=Zeina&text=${encodeURIComponent(speechText)}`;
 
-        // جلب مقطع الصوت كاملاً في الذاكرة أولاً لتفادي انقطاع البث
         const response = await axios.get(ttsUrl, {
             responseType: 'arraybuffer',
             headers: {
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'
             }
         });
 
         const stream = Readable.from(Buffer.from(response.data));
 
-        // انتظار استقرار جاهزية الاتصال الصوتي قبل إرسال الحزم
-        await entersState(connection, VoiceConnectionStatus.Ready, 10_000);
+        await entersState(connection, VoiceConnectionStatus.Ready, 15_000);
 
         const resource = createAudioResource(stream, {
             inputType: StreamType.Arbitrary
@@ -346,10 +345,8 @@ client.on('interactionCreate', async interaction => {
                     });
                 }
 
-                // جلب الإجابة من Dify
                 const answer = await sendQueryToDify(prompt, interaction.user.id);
 
-                // تشغيل الصوت
                 await playTTSSpeech(connection, answer);
 
                 await interaction.editReply(`🗣️ **[يتحدث الآن في روم: ${voiceChannel.name}]**\n\n${answer}`);
