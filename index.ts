@@ -14,7 +14,11 @@ import {
     joinVoiceChannel, 
     getVoiceConnection, 
     VoiceConnectionStatus, 
-    entersState
+    entersState,
+    createAudioPlayer,
+    createAudioResource,
+    AudioPlayerStatus,
+    StreamType
 } from '@discordjs/voice';
 import axios from 'axios';
 import dotenv from 'dotenv';
@@ -95,6 +99,41 @@ const client = new Client({
 });
 
 // ==========================================
+// دالة معالجة ونطق الصوت في الروم (TTS)
+// ==========================================
+function playTTSSpeech(connection: any, text: string) {
+    try {
+        // تنظيف النص من الرموز، التنسيقات، والأكواد لضمان نطق آلي ممتاز
+        const cleanedText = text
+            .replace(/```[\s\S]*?```/g, 'كود برمجي')
+            .replace(/`([^`]+)`/g, '$1')
+            .replace(/[*_~#>-]/g, '')
+            .replace(/https?:\/\/\S+/g, 'رابط')
+            .trim();
+
+        // اقتطاع النص إلى أول 250 حرفاً لتفادي البطء في نطق الجمل الطويلة جداً
+        const speechText = cleanedText.slice(0, 250); 
+        if (!speechText) return;
+
+        const ttsUrl = `https://translate.google.com/translate_tts?ie=UTF-8&q=${encodeURIComponent(speechText)}&tl=ar&client=tw-ob`;
+
+        const resource = createAudioResource(ttsUrl, {
+            inputType: StreamType.Arbitrary
+        });
+        const player = createAudioPlayer();
+
+        connection.subscribe(player);
+        player.play(resource);
+
+        player.on('error', (error) => {
+            console.error(' [TTS Player Error]:', error.message);
+        });
+    } catch (err: any) {
+        console.error(' [TTS Exception]:', err.message);
+    }
+}
+
+// ==========================================
 // 5. تسجيل أوامر Slash والبدء
 // ==========================================
 client.once('ready', async (readyClient) => {
@@ -111,14 +150,14 @@ client.once('ready', async (readyClient) => {
             ),
         new SlashCommandBuilder()
             .setName('room')
-            .setDescription('التحكم بتواجد البوت في الروم الصوتي')
+            .setDescription('التحكم بتواجد البوت في الروم الصوتي والنطق')
             .addSubcommand(subcommand =>
                 subcommand
                     .setName('ask')
-                    .setDescription('اطرح سؤالاً، يدخل البوت رومك الصوتي ويجاوب ويبقى فيه')
+                    .setDescription('اطرح سؤالاً، يدخل البوت ينطق الإجابة صوتاً ويبقى معكم')
                     .addStringOption(option =>
                         option.setName('prompt')
-                            .setDescription('السؤال الذي تريد طرحه')
+                            .setDescription('السؤال الذي تريد إجابته صوتاً')
                             .setRequired(true)
                     )
             )
@@ -267,35 +306,46 @@ client.on('interactionCreate', async interaction => {
             const voiceChannel = member?.voice?.channel;
 
             if (!voiceChannel) {
-                await interaction.reply({ content: '❌ يجب أن تكون متصلاً بروم صوتي أولاً لكي يدخل البوت إليك!', flags: MessageFlags.Ephemeral });
+                await interaction.reply({ 
+                    content: '❌ يجب أن تكون متصلاً بروم صوتي أولاً لكي يدخل البوت إليك ويجيبك صوتاً!', 
+                    flags: MessageFlags.Ephemeral 
+                });
                 return;
             }
 
             await interaction.deferReply();
 
-            // الانضمام لروم المستخدم الصوتي
-            const connection = joinVoiceChannel({
-                channelId: voiceChannel.id,
-                guildId: voiceChannel.guild.id,
-                adapterCreator: voiceChannel.guild.voiceAdapterCreator,
-                selfDeaf: false,
-                selfMute: false
-            });
+            // الاتصال بالروم الصوتي
+            let connection = getVoiceConnection(interaction.guildId!);
+            if (!connection) {
+                connection = joinVoiceChannel({
+                    channelId: voiceChannel.id,
+                    guildId: voiceChannel.guild.id,
+                    adapterCreator: voiceChannel.guild.voiceAdapterCreator,
+                    selfDeaf: false,
+                    selfMute: false
+                });
 
-            // التعامل مع أي انقطاع مفاجئ للاتصال بالروم
-            connection.on(VoiceConnectionStatus.Disconnected, async () => {
-                try {
-                    await Promise.race([
-                        entersState(connection, VoiceConnectionStatus.Signalling, 5_000),
-                        entersState(connection, VoiceConnectionStatus.Connecting, 5_000),
-                    ]);
-                } catch (error) {
-                    connection.destroy();
-                }
-            });
+                connection.on(VoiceConnectionStatus.Disconnected, async () => {
+                    try {
+                        await Promise.race([
+                            entersState(connection, VoiceConnectionStatus.Signalling, 5_000),
+                            entersState(connection, VoiceConnectionStatus.Connecting, 5_000),
+                        ]);
+                    } catch (error) {
+                        connection.destroy();
+                    }
+                });
+            }
 
+            // جلب الإجابة من Dify
             const answer = await sendQueryToDify(prompt, interaction.user.id);
-            await interaction.editReply(`🔊 **[تم الدخول إلى روم: ${voiceChannel.name}]**\n\n${answer}`);
+
+            // نطق الإجابة صوتاً داخل الروم
+            playTTSSpeech(connection, answer);
+
+            // عرض النص في الشات كمرجع
+            await interaction.editReply(`🗣️ **[يتحدث الآن في روم: ${voiceChannel.name}]**\n\n${answer}`);
         } 
         else if (subcommand === 'exit') {
             const connection = getVoiceConnection(interaction.guildId!);
