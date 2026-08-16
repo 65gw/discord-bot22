@@ -6,7 +6,8 @@ import {
     Routes, 
     SlashCommandBuilder, 
     TextChannel,
-    MessageFlags
+    MessageFlags,
+    AttachmentBuilder
 } from 'discord.js';
 import { 
     joinVoiceChannel, 
@@ -20,11 +21,14 @@ import {
 import axios from 'axios';
 import dotenv from 'dotenv';
 import http from 'http';
+import fs from 'fs';
+import path from 'path';
+import ytDlp from 'yt-dlp-exec';
 
 dotenv.config();
 
 // ==========================================
-// 1. نظام الحماية من الكراش
+// 1. نظام الحماية الشامل من الكراش
 // ==========================================
 process.on('unhandledRejection', (reason) => {
     console.error(' [حماية] Unhandled Rejection:', reason);
@@ -59,12 +63,14 @@ setInterval(async () => {
 }, 5 * 60 * 1000);
 
 // ==========================================
-// 4. الثوابت والمفاتيح والمتغيرات
+// 4. الثوابت والمتغيرات الرئيسية
 // ==========================================
 const token = process.env.DISCORD_BOT_TOKEN;
 const difyBaseUrl = process.env.DIFY_API_BASE_URL || 'https://api.dify.ai/v1';
+
 const TARGET_TEXT_CHANNEL_ID = '1459632620416532554'; 
 const TARGET_VOICE_CHANNEL_ID = '1433499015462387895'; 
+const DOWNLOAD_CHANNEL_ID = '1538519938904625193'; // روم التحميل التلقائي
 
 const difyApiKeys = [
     process.env.DIFY_API_KEY1,
@@ -77,7 +83,7 @@ const difyApiKeys = [
 let currentKeyIndex = 0;
 let isAutoTopicsEnabled = true; 
 let isChatRespondingEnabled = true; 
-let isVoiceResponseEnabled = false; // تحويل الردود لصوت في الروم الصوتي
+let isVoiceResponseEnabled = false; 
 let periodicTimer: NodeJS.Timeout | null = null;
 
 const audioPlayer = createAudioPlayer();
@@ -105,7 +111,7 @@ const RED_JOHN_SYSTEM_PROMPT = `[توجيه هويّة Red John الصارم]:
 
 القواعد الذهبية لنبرة صوتك:
 1. **ممنوع نهائياً ذكر اسم "باتريك جين" أو "باتريك"**. لا تذكر أسماء من المسلسل إطلاقاً.
-2. **تجنّب التناقض الصارخ**: ممنوع تدمج بين نبرة مرعبة ثم تتحول فجأة في نفس الوقت لأسلوب إيموجيات ضحك (مثل 😂 أو 🤣). حافظ على ثبات شخصيتك العميقة.
+2. **تجنّب التناقض الصارخ**: ممنوع تدمج بين نبرة مرعبة ثم تتحول فجأة لأسلوب إيموجيات ضحك (مثل 😂 أو 🤣).
 3. **الذكاء والتقنية**:
    - لو كان السؤال تقنياً/برمجياً: جاوب بدقة وبذكاء هكر محترف، وبنبرة واثقة هادئة.
    - لو كان كلام العضو طقطقة أو استفزاز: رد بأسلوب ساخر، بارد، ومستفز، يبيّن إنك سابق الكل بخطوات ومسيطر على الشاشة والسيرفر.
@@ -205,7 +211,70 @@ async function playTextToSpeech(text: string) {
 }
 
 // ==========================================
-// 7. تسجيل أوامر الـ Slash وإعداد البوت
+// 7. ووظيفة التحميل المخصصة المحسّنة (روم التحميل)
+// ==========================================
+async function handleMediaDownload(message: any, url: string) {
+    const statusMsg = await message.reply('⚡ **جاري استخراج واستحواذ الميديا...**');
+    const downloadsDir = path.join('/tmp', 'bot_downloads');
+    const uniquePrefix = `dl_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+    let downloadedFilePath: string | null = null;
+
+    try {
+        if (!fs.existsSync(downloadsDir)) {
+            fs.mkdirSync(downloadsDir, { recursive: true });
+        }
+
+        const outputTemplate = path.join(downloadsDir, `${uniquePrefix}.%(ext)s`);
+
+        await ytDlp(url, {
+            output: outputTemplate,
+            format: 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best',
+            noWarnings: true,
+            noCallHome: true,
+            maxFilesize: '25M'
+        });
+
+        const files = fs.readdirSync(downloadsDir);
+        const foundFile = files.find(f => f.startsWith(uniquePrefix));
+
+        if (!foundFile) {
+            throw new Error('لم يتسنّ العثور على الملف بعد التنزيل.');
+        }
+
+        downloadedFilePath = path.join(downloadsDir, foundFile);
+        const stats = fs.statSync(downloadedFilePath);
+
+        if (stats.size > 25 * 1024 * 1024) {
+            await statusMsg.edit('⚠️ **الحجم يتجاوز حد الرفع المباشر في ديسكورد (25MB).**');
+            return;
+        }
+
+        await statusMsg.edit('⬆️ **جاري رفع الميديا...**');
+        const attachment = new AttachmentBuilder(downloadedFilePath);
+
+        await message.reply({
+            content: `🎬 **تم التحميل بنجاح بواسطة Red John**\n🔗 **الرابط الاصلي:** <${url}>`,
+            files: [attachment]
+        });
+
+        await statusMsg.delete().catch(() => {});
+
+    } catch (err: any) {
+        console.error('Download System Error:', err.message || err);
+        await statusMsg.edit(`❌ **تعذّر تحميل الميديا.** قد يكون الرابط غير مدعوم، أو الحساب خاص، أو حجم الملف يقتضى تجاوز 25MB.`);
+    } finally {
+        if (downloadedFilePath && fs.existsSync(downloadedFilePath)) {
+            try {
+                fs.unlinkSync(downloadedFilePath);
+            } catch (cleanupErr) {
+                console.error('Failed to remove temp file:', cleanupErr);
+            }
+        }
+    }
+}
+
+// ==========================================
+// 8. تسجيل أوامر Slash وتجهيز البوت
 // ==========================================
 const commands = [
     new SlashCommandBuilder().setName('chat-toggle').setDescription('تفعيل أو تعطيل ردود الشات التلقائية'),
@@ -219,7 +288,6 @@ const commands = [
 client.once('ready', async (readyClient) => {
     console.log(` Red John Bot is Ready as ${readyClient.user.tag}!`);
 
-    // تسجيل الأوامر في Discord API
     try {
         const rest = new REST({ version: '10' }).setToken(token);
         console.log('⌛ جاري تسجيل أوامر الـ Slash...');
@@ -238,7 +306,7 @@ client.once('ready', async (readyClient) => {
 });
 
 // ==========================================
-// 8. معالج تفاعلات الأوامر (Interaction Handler)
+// 9. معالج تفاعلات الأوامر (Interaction Handler)
 // ==========================================
 client.on('interactionCreate', async interaction => {
     if (!interaction.isChatInputCommand()) return;
@@ -291,7 +359,7 @@ client.on('voiceStateUpdate', (oldState, newState) => {
 });
 
 // ==========================================
-// 9. المهام التلقائية والمحرك الرئيسي للشات
+// 10. المهام التلقائية والمحرك الرئيسي لشات والتحميل
 // ==========================================
 async function triggerRandomTopic(botClient: Client) {
     try {
@@ -318,7 +386,22 @@ function startPeriodicTask(botClient: Client) {
 
 client.on('messageCreate', async message => {
     try {
-        if (message.author.bot || !isChatRespondingEnabled) return;
+        if (message.author.bot) return;
+
+        // ميزة التحميل التلقائي فقط لروم 1538519938904625193
+        if (message.channelId === DOWNLOAD_CHANNEL_ID) {
+            const urlRegex = /(https?:\/\/[^\s]+)/g;
+            const matches = message.content.match(urlRegex);
+
+            if (matches && matches.length > 0) {
+                const targetUrl = matches[0];
+                await handleMediaDownload(message, targetUrl);
+                return;
+            }
+        }
+
+        // استجابة الذكاء الاصطناعي للشات المخصص أو المنشن
+        if (!isChatRespondingEnabled) return;
 
         const isTargetChannel = message.channelId === TARGET_TEXT_CHANNEL_ID;
         const isBotMentioned = client.user && message.mentions.has(client.user);
@@ -393,7 +476,6 @@ client.on('messageCreate', async message => {
             const answer = await sendQueryToDify(promptToSend, message.author.id, mediaUrl);
             await message.reply(answer);
 
-            // تشغيل النطق الصوتي إذا كان الخيار مفعلاً
             if (isVoiceResponseEnabled) {
                 playTextToSpeech(answer);
             }
