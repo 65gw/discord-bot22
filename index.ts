@@ -123,7 +123,7 @@ async function playTTSSpeech(connection: any, text: string) {
 
         const ttsUrl = `https://translate.google.com/translate_tts?ie=UTF-8&q=${encodeURIComponent(speechText)}&tl=ar&client=tw-ob`;
 
-        // جلب مقطع الصوت كاملاً في الذاكرة لتفادي انقطاع البث
+        // جلب مقطع الصوت كاملاً في الذاكرة أولاً لتفادي انقطاع البث
         const response = await axios.get(ttsUrl, {
             responseType: 'arraybuffer',
             headers: {
