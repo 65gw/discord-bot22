@@ -70,7 +70,6 @@ const difyBaseUrl = process.env.DIFY_API_BASE_URL || 'https://api.dify.ai/v1';
 
 const TARGET_TEXT_CHANNEL_ID = '1459632620416532554'; 
 const TARGET_VOICE_CHANNEL_ID = '1433499015462387895'; 
-const DOWNLOAD_CHANNEL_ID = '1538519938904625193'; // روم التحميل التلقائي
 
 const difyApiKeys = [
     process.env.DIFY_API_KEY1,
@@ -211,10 +210,11 @@ async function playTextToSpeech(text: string) {
 }
 
 // ==========================================
-// 7. ووظيفة التحميل المخصصة المحسّنة (روم التحميل)
+// 7. وظيفة التنزيل عبر أومر Slash Command
 // ==========================================
-async function handleMediaDownload(message: any, url: string) {
-    const statusMsg = await message.reply('⚡ **جاري استخراج واستحواذ الميديا...**');
+async function handleMediaDownloadSlash(interaction: any, url: string) {
+    await interaction.deferReply();
+
     const downloadsDir = path.join('/tmp', 'bot_downloads');
     const uniquePrefix = `dl_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
     let downloadedFilePath: string | null = null;
@@ -238,30 +238,27 @@ async function handleMediaDownload(message: any, url: string) {
         const foundFile = files.find(f => f.startsWith(uniquePrefix));
 
         if (!foundFile) {
-            throw new Error('لم يتسنّ العثور على الملف بعد التنزيل.');
+            throw new Error('لم يتم العثور على الملف بعد انتهاء التنزيل.');
         }
 
         downloadedFilePath = path.join(downloadsDir, foundFile);
         const stats = fs.statSync(downloadedFilePath);
 
         if (stats.size > 25 * 1024 * 1024) {
-            await statusMsg.edit('⚠️ **الحجم يتجاوز حد الرفع المباشر في ديسكورد (25MB).**');
+            await interaction.editReply('⚠️ **حجم الملف يتجاوز 25 ميجابايت (الحد الأقصى لرفع ديسكورد المباشر).**');
             return;
         }
 
-        await statusMsg.edit('⬆️ **جاري رفع الميديا...**');
         const attachment = new AttachmentBuilder(downloadedFilePath);
 
-        await message.reply({
-            content: `🎬 **تم التحميل بنجاح بواسطة Red John**\n🔗 **الرابط الاصلي:** <${url}>`,
+        await interaction.editReply({
+            content: `🎬 **تم التحميل بنجاح بواسطة Red John**\n🔗 **الرابط الأصلي:** <${url}>`,
             files: [attachment]
         });
 
-        await statusMsg.delete().catch(() => {});
-
     } catch (err: any) {
         console.error('Download System Error:', err.message || err);
-        await statusMsg.edit(`❌ **تعذّر تحميل الميديا.** قد يكون الرابط غير مدعوم، أو الحساب خاص، أو حجم الملف يقتضى تجاوز 25MB.`);
+        await interaction.editReply(`❌ **تعذّر تحميل الميديا.** قد يكون الرابط غير مدعوم، الحساب خاص، أو الحجم يتجاوز 25MB.`);
     } finally {
         if (downloadedFilePath && fs.existsSync(downloadedFilePath)) {
             try {
@@ -282,7 +279,9 @@ const commands = [
     new SlashCommandBuilder().setName('voice-toggle').setDescription('تفعيل أو تعطيل تحويل الردود إلى صوت في الروم الصوتي'),
     new SlashCommandBuilder().setName('speak').setDescription('جعل البوت يتحدث بنص معين في الروم الصوتي')
         .addStringOption(opt => opt.setName('text').setDescription('النص المراد نطقة').setRequired(true)),
-    new SlashCommandBuilder().setName('status').setDescription('عرض حالة النظام والبوت الحالية')
+    new SlashCommandBuilder().setName('status').setDescription('عرض حالة النظام والبوت الحالية'),
+    new SlashCommandBuilder().setName('download').setDescription('تحميل مقطع فيديو أو صورة من أي رابط بأعلى جودة')
+        .addStringOption(opt => opt.setName('url').setDescription('رابط الميديا (تيك توك، انستا، يوتيوب...)').setRequired(true))
 ];
 
 client.once('ready', async (readyClient) => {
@@ -313,7 +312,11 @@ client.on('interactionCreate', async interaction => {
 
     const { commandName } = interaction;
 
-    if (commandName === 'chat-toggle') {
+    if (commandName === 'download') {
+        const targetUrl = interaction.options.getString('url', true);
+        await handleMediaDownloadSlash(interaction, targetUrl);
+    }
+    else if (commandName === 'chat-toggle') {
         isChatRespondingEnabled = !isChatRespondingEnabled;
         await interaction.reply({ 
             content: `تم ${isChatRespondingEnabled ? '🟢 تفعيل' : '🔴 تعطيل'} ردود الشات التلقائية.`, 
@@ -359,7 +362,7 @@ client.on('voiceStateUpdate', (oldState, newState) => {
 });
 
 // ==========================================
-// 10. المهام التلقائية والمحرك الرئيسي لشات والتحميل
+// 10. المهام التلقائية والمحرك الرئيسي لشات الذكاء الاصطناعي
 // ==========================================
 async function triggerRandomTopic(botClient: Client) {
     try {
@@ -387,18 +390,6 @@ function startPeriodicTask(botClient: Client) {
 client.on('messageCreate', async message => {
     try {
         if (message.author.bot) return;
-
-        // ميزة التحميل التلقائي فقط لروم 1538519938904625193
-        if (message.channelId === DOWNLOAD_CHANNEL_ID) {
-            const urlRegex = /(https?:\/\/[^\s]+)/g;
-            const matches = message.content.match(urlRegex);
-
-            if (matches && matches.length > 0) {
-                const targetUrl = matches[0];
-                await handleMediaDownload(message, targetUrl);
-                return;
-            }
-        }
 
         // استجابة الذكاء الاصطناعي للشات المخصص أو المنشن
         if (!isChatRespondingEnabled) return;
