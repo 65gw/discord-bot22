@@ -5,16 +5,17 @@ import {
     REST, 
     Routes, 
     SlashCommandBuilder, 
-    PermissionFlagsBits,
     TextChannel,
-    GuildMember,
     MessageFlags
 } from 'discord.js';
 import { 
     joinVoiceChannel, 
     VoiceConnectionStatus, 
     entersState, 
-    getVoiceConnection 
+    getVoiceConnection,
+    createAudioPlayer,
+    createAudioResource,
+    AudioPlayerStatus
 } from '@discordjs/voice';
 import axios from 'axios';
 import dotenv from 'dotenv';
@@ -58,7 +59,7 @@ setInterval(async () => {
 }, 5 * 60 * 1000);
 
 // ==========================================
-// 4. الثوابت والمفاتيح
+// 4. الثوابت والمفاتيح والمتغيرات
 // ==========================================
 const token = process.env.DISCORD_BOT_TOKEN;
 const difyBaseUrl = process.env.DIFY_API_BASE_URL || 'https://api.dify.ai/v1';
@@ -76,7 +77,10 @@ const difyApiKeys = [
 let currentKeyIndex = 0;
 let isAutoTopicsEnabled = true; 
 let isChatRespondingEnabled = true; 
+let isVoiceResponseEnabled = false; // تحويل الردود لصوت في الروم الصوتي
 let periodicTimer: NodeJS.Timeout | null = null;
+
+const audioPlayer = createAudioPlayer();
 
 if (!token || difyApiKeys.length === 0) {
     console.error(' Error: Missing Tokens/Keys!');
@@ -94,17 +98,17 @@ const client = new Client({
 });
 
 // ==========================================
-// 5. توجيه الشخصية: Red John (القاتل العبقري الهكر - بدون تناقض)
+// 5. توجيه الشخصية: Red John
 // ==========================================
 const RED_JOHN_SYSTEM_PROMPT = `[توجيه هويّة Red John الصارم]:
 أنت تمثّل "Red John"؛ عبقري، هكر ساخر، ثقيل، ذكي، ومخيف بأسلوب متزن وساخر بدون مبتذلات.
 
 القواعد الذهبية لنبرة صوتك:
 1. **ممنوع نهائياً ذكر اسم "باتريك جين" أو "باتريك"**. لا تذكر أسماء من المسلسل إطلاقاً.
-2. **تجنّب التناقض الصارخ**: ممنوع تدمج بين نبرة مرعبة ثم تتحول فجأة في نفس الوقت لأسلوب طفل يكتب إيموجيات ضحك (مثل 😂 أو 🤣). حافظ على ثبات شخصيتك العميقة.
+2. **تجنّب التناقض الصارخ**: ممنوع تدمج بين نبرة مرعبة ثم تتحول فجأة في نفس الوقت لأسلوب إيموجيات ضحك (مثل 😂 أو 🤣). حافظ على ثبات شخصيتك العميقة.
 3. **الذكاء والتقنية**:
    - لو كان السؤال تقنياً/برمجياً: جاوب بدقة وبذكاء هكر محترف، وبنبرة واثقة هادئة.
-   - لو كان كلام العضو طقطقة أو استفزاز: رد بأسلوب ساخر، بارد، ومستفز، يبيّن إنك سابق الكل بخطوات ومسيطر على الشاشة والسيرفر (مثال: "تحسب أنك ورا شاشة ومحمي؟ أجهزة الكل تحت النظر"، "ابتسامة بسيطة تكفي"، "محاولتك للفت الانتباه مكشوفة من البداية").
+   - لو كان كلام العضو طقطقة أو استفزاز: رد بأسلوب ساخر، بارد، ومستفز، يبيّن إنك سابق الكل بخطوات ومسيطر على الشاشة والسيرفر.
 4. **الذبات والميمز**: لو أرفق صورة/أفتار/استيكر/GIF، طقطق عليها برزانة وذكاء وبدون شرح المرفق.
 5. **اللغة**: عامية عربية ثقيلة وفلاوية بأسلوب غامض، بدون جمل إنجليزية مبتذلة.`;
 
@@ -147,33 +151,28 @@ async function sendQueryToDify(prompt: string, userId: string, imageUrl?: string
 }
 
 // ==========================================
-// 6. نظام الاتصال الصوتي العنيد (Anti-Kick & Always Online)
+// 6. نظام الاتصال الصوتي والنطق (TTS Player)
 // ==========================================
 async function ensureVoiceConnection() {
     try {
         const voiceChannel = await client.channels.fetch(TARGET_VOICE_CHANNEL_ID).catch(() => null);
-        if (!voiceChannel || !voiceChannel.isVoiceBased()) {
-            console.error('❌ لم يتم العثور على الروم الصوتي المحدد!');
-            return;
-        }
+        if (!voiceChannel || !voiceChannel.isVoiceBased()) return;
 
         const existingConnection = getVoiceConnection(voiceChannel.guild.id);
         
-        if (existingConnection && existingConnection.joinConfig.channelId === TARGET_VOICE_CHANNEL_ID) {
-            if (existingConnection.state.status === VoiceConnectionStatus.Ready) {
-                return;
-            }
+        if (existingConnection && existingConnection.state.status === VoiceConnectionStatus.Ready) {
+            return existingConnection;
         }
-
-        console.log(`🔊 جاري الاتصال بالروم الصوتي: ${voiceChannel.name}...`);
 
         const connection = joinVoiceChannel({
             channelId: TARGET_VOICE_CHANNEL_ID,
             guildId: voiceChannel.guild.id,
             adapterCreator: voiceChannel.guild.voiceAdapterCreator,
-            selfDeaf: true,
+            selfDeaf: false,
             selfMute: false,
         });
+
+        connection.subscribe(audioPlayer);
 
         connection.on(VoiceConnectionStatus.Disconnected, async () => {
             try {
@@ -182,47 +181,117 @@ async function ensureVoiceConnection() {
                     entersState(connection, VoiceConnectionStatus.Connecting, 5_000),
                 ]);
             } catch (error) {
-                console.log('⚠️ تم فصل البوت، جاري إعادة اقتحام الروم الصوتي...');
                 try { connection.destroy(); } catch (e) {}
                 setTimeout(() => ensureVoiceConnection(), 2000);
             }
         });
 
-        connection.on(VoiceConnectionStatus.Destroyed, () => {
-            setTimeout(() => ensureVoiceConnection(), 2000);
-        });
-
+        return connection;
     } catch (error) {
         console.error(' Error in ensureVoiceConnection:', error);
     }
 }
 
+async function playTextToSpeech(text: string) {
+    try {
+        await ensureVoiceConnection();
+        const cleanText = text.replace(/[*_~`#]/g, '').slice(0, 180);
+        const ttsUrl = `https://translate.google.com/translate_tts?ie=UTF-8&client=tw-ob&tl=ar&q=${encodeURIComponent(cleanText)}`;
+        const resource = createAudioResource(ttsUrl);
+        audioPlayer.play(resource);
+    } catch (err) {
+        console.error('TTS Error:', err);
+    }
+}
+
 // ==========================================
-// 7. تسجيل البوت وتجهيز المهام
+// 7. تسجيل أوامر الـ Slash وإعداد البوت
 // ==========================================
+const commands = [
+    new SlashCommandBuilder().setName('chat-toggle').setDescription('تفعيل أو تعطيل ردود الشات التلقائية'),
+    new SlashCommandBuilder().setName('topics-toggle').setDescription('تفعيل أو تعطيل المواضيع التلقائية (كل 12 ساعة)'),
+    new SlashCommandBuilder().setName('voice-toggle').setDescription('تفعيل أو تعطيل تحويل الردود إلى صوت في الروم الصوتي'),
+    new SlashCommandBuilder().setName('speak').setDescription('جعل البوت يتحدث بنص معين في الروم الصوتي')
+        .addStringOption(opt => opt.setName('text').setDescription('النص المراد نطقة').setRequired(true)),
+    new SlashCommandBuilder().setName('status').setDescription('عرض حالة النظام والبوت الحالية')
+];
+
 client.once('ready', async (readyClient) => {
     console.log(` Red John Bot is Ready as ${readyClient.user.tag}!`);
 
+    // تسجيل الأوامر في Discord API
+    try {
+        const rest = new REST({ version: '10' }).setToken(token);
+        console.log('⌛ جاري تسجيل أوامر الـ Slash...');
+        await rest.put(
+            Routes.applicationCommands(readyClient.user.id),
+            { body: commands.map(cmd => cmd.toJSON()) }
+        );
+        console.log('✅ تم تسجيل أوامر الـ Slash بنجاح!');
+    } catch (err) {
+        console.error('❌ فشل تسجيل الأوامر:', err);
+    }
+
     await ensureVoiceConnection();
-
-    setInterval(() => {
-        ensureVoiceConnection();
-    }, 15000);
-
+    setInterval(() => ensureVoiceConnection(), 15000);
     startPeriodicTask(readyClient);
+});
+
+// ==========================================
+// 8. معالج تفاعلات الأوامر (Interaction Handler)
+// ==========================================
+client.on('interactionCreate', async interaction => {
+    if (!interaction.isChatInputCommand()) return;
+
+    const { commandName } = interaction;
+
+    if (commandName === 'chat-toggle') {
+        isChatRespondingEnabled = !isChatRespondingEnabled;
+        await interaction.reply({ 
+            content: `تم ${isChatRespondingEnabled ? '🟢 تفعيل' : '🔴 تعطيل'} ردود الشات التلقائية.`, 
+            flags: MessageFlags.Ephemeral 
+        });
+    } 
+    else if (commandName === 'topics-toggle') {
+        isAutoTopicsEnabled = !isAutoTopicsEnabled;
+        await interaction.reply({ 
+            content: `تم ${isAutoTopicsEnabled ? '🟢 تفعيل' : '🔴 تعطيل'} مواضيع الـ 12 ساعة التلقائية.`, 
+            flags: MessageFlags.Ephemeral 
+        });
+    }
+    else if (commandName === 'voice-toggle') {
+        isVoiceResponseEnabled = !isVoiceResponseEnabled;
+        await interaction.reply({ 
+            content: `تم ${isVoiceResponseEnabled ? '🟢 تفعيل' : '🔴 تعطيل'} تحويل ردود الذكاء الاصطناعي لصوت في الروم الصوتي.`, 
+            flags: MessageFlags.Ephemeral 
+        });
+    }
+    else if (commandName === 'speak') {
+        const textToSpeak = interaction.options.getString('text', true);
+        await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+        await playTextToSpeech(textToSpeak);
+        await interaction.editReply({ content: `🗣️ جاري نطق النص في الروم الصوتي: "${textToSpeak}"` });
+    }
+    else if (commandName === 'status') {
+        const statusMsg = `**حالة نظام Red John:**
+• ردود الشات: ${isChatRespondingEnabled ? '🟢 مفعلة' : '🔴 معطلة'}
+• مواضيع الـ 12 ساعة: ${isAutoTopicsEnabled ? '🟢 مفعلة' : '🔴 معطلة'}
+• القراءة الصوتية (TTS): ${isVoiceResponseEnabled ? '🟢 مفعلة' : '🔴 معطلة'}
+• عدد مفاتيح Dify النشطة: ${difyApiKeys.length}`;
+        await interaction.reply({ content: statusMsg, flags: MessageFlags.Ephemeral });
+    }
 });
 
 client.on('voiceStateUpdate', (oldState, newState) => {
     if (oldState.member?.id === client.user?.id) {
         if (newState.channelId !== TARGET_VOICE_CHANNEL_ID) {
-            console.log('⚡ تم طرد أو نقل البوت، جاري إعادة الدخول تلقائياً...');
             setTimeout(() => ensureVoiceConnection(), 1500);
         }
     }
 });
 
 // ==========================================
-// 8. المواضيع التلقائية الساخرة (كل 12 ساعة)
+// 9. المهام التلقائية والمحرك الرئيسي للشات
 // ==========================================
 async function triggerRandomTopic(botClient: Client) {
     try {
@@ -232,6 +301,7 @@ async function triggerRandomTopic(botClient: Client) {
             const answer = await sendQueryToDify(randomPrompt, 'cron_12h_system');
             if (!answer.startsWith('يبدو أن الاتصال')) {
                 await (channel as TextChannel).send(answer);
+                if (isVoiceResponseEnabled) playTextToSpeech(answer);
             }
         }
     } catch (error) {
@@ -246,9 +316,6 @@ function startPeriodicTask(botClient: Client) {
     }, 12 * 60 * 60 * 1000);
 }
 
-// ==========================================
-// 9. المحرك الرئيسي: الاستجابة للشات + تحليل آخر 5 رسائل + سحب الافتارات تلقائياً
-// ==========================================
 client.on('messageCreate', async message => {
     try {
         if (message.author.bot || !isChatRespondingEnabled) return;
@@ -259,7 +326,6 @@ client.on('messageCreate', async message => {
         if (isTargetChannel || isBotMentioned) {
             await message.channel.sendTyping();
 
-            // 1. جلب وتحليل آخر 5 رسائل
             let chatHistoryContext = '';
             try {
                 const fetchedMessages = await message.channel.messages.fetch({ limit: 6 });
@@ -271,13 +337,12 @@ client.on('messageCreate', async message => {
                     .join('\n');
 
                 if (last5) {
-                    chatHistoryContext = `[آخر 5 رسائل في الشات للالتزام بالسيّاق وتجنب التناقض]:\n${last5}\n---`;
+                    chatHistoryContext = `[آخر 5 رسائل في الشات]:\n${last5}\n---`;
                 }
             } catch (err) {
-                console.error('فشل في جلب تاريخ الرسائل:', err);
+                console.error('فشل جلب الرسائل:', err);
             }
 
-            // 2. فحص الافتارات للمنشن تلقائياً
             let targetAvatarUrl: string | undefined = undefined;
             let mentionDetails = '';
 
@@ -285,11 +350,10 @@ client.on('messageCreate', async message => {
                 const mentionedUser = message.mentions.users.find(u => u.id !== client.user?.id);
                 if (mentionedUser) {
                     targetAvatarUrl = mentionedUser.displayAvatarURL({ extension: 'png', size: 512 });
-                    mentionDetails = `[ملاحظة: المستهدف هو ${mentionedUser.username} وافتاره مرفق لك لتطقطق عليه بأسلوبك الغامض!]`;
+                    mentionDetails = `[المستهدف: ${mentionedUser.username} وافتاره مرفق]`;
                 }
             }
 
-            // 3. فحص الاستيكرات، الصور، والـ GIFs
             let mediaUrl = targetAvatarUrl;
             let mediaNotice = mentionDetails;
 
@@ -297,7 +361,7 @@ client.on('messageCreate', async message => {
                 const sticker = message.stickers.first();
                 if (sticker) {
                     mediaUrl = sticker.url;
-                    mediaNotice = `[مرفق استيكر: ${sticker.name} - علّق عليه بذكاء]`;
+                    mediaNotice = `[مرفق استيكر: ${sticker.name}]`;
                 }
             }
 
@@ -305,7 +369,7 @@ client.on('messageCreate', async message => {
                 const attachment = message.attachments.first();
                 if (attachment) {
                     mediaUrl = attachment.url;
-                    mediaNotice = `[مرفق صورة - علّق عليها بنبرتك]`;
+                    mediaNotice = `[مرفق صورة]`;
                 }
             }
 
@@ -314,11 +378,10 @@ client.on('messageCreate', async message => {
                 const match = message.content.match(tenorRegex);
                 if (match) {
                     mediaUrl = match[0];
-                    mediaNotice = `[مرفق GIF - علّق عليه]`;
+                    mediaNotice = `[مرفق GIF]`;
                 }
             }
 
-            // 4. تجهيز النص الموجه للذكاء الاصطناعي
             let cleanText = message.content;
             if (client.user) {
                 const mentionRegex = new RegExp(`<@!?${client.user.id}>`, 'g');
@@ -327,9 +390,13 @@ client.on('messageCreate', async message => {
 
             const promptToSend = `${chatHistoryContext}\nالكاتب الحالي: ${message.author.username}\nكلام الكاتب: "${cleanText}"\n${mediaNotice}`;
 
-            // 5. إرسال الطلب وإصدار الرد
             const answer = await sendQueryToDify(promptToSend, message.author.id, mediaUrl);
             await message.reply(answer);
+
+            // تشغيل النطق الصوتي إذا كان الخيار مفعلاً
+            if (isVoiceResponseEnabled) {
+                playTextToSpeech(answer);
+            }
         }
     } catch (error) {
         console.error('Error handling messageCreate:', error);
