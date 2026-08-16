@@ -1,6 +1,7 @@
 {
   "name": "discord-bot",
   "version": "1.0.0",
+  "description": "Red John Discord Bot with Auto-Download & Voice",
   "main": "dist/index.js",
   "scripts": {
     "build": "tsc",
@@ -8,13 +9,14 @@
   },
   "dependencies": {
     "@discordjs/voice": "^0.17.0",
-    "axios": "^1.7.0",
+    "axios": "^1.7.9",
     "discord.js": "^14.18.0",
-    "dotenv": "^16.4.5",
-    "libsodium-wrappers": "^0.7.15"
+    "dotenv": "^16.4.7",
+    "libsodium-wrappers": "^0.7.15",
+    "yt-dlp-exec": "^3.0.2"
   },
   "devDependencies": {
-    "@types/node": "^20.0.0",
-    "typescript": "^5.0.0"
+    "@types/node": "^20.17.0",
+    "typescript": "^5.7.0"
   }
 }
