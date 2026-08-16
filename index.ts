@@ -34,19 +34,19 @@ process.on('uncaughtException', (err) => {
 });
 
 // ==========================================
-// 2. سيرفر الويب لخدمة Render (حماية من الإغلاق)
+// 2. سيرفر الويب لخدمة Render
 // ==========================================
 const PORT = process.env.PORT || 3000;
 http.createServer((req, res) => {
     res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8' });
-    res.write('Red John Bot is Online, Voice Connected & Hunting!');
+    res.write('Red John Bot is Online & Ready!');
     res.end();
 }).listen(PORT, () => {
     console.log(` [Server] Listening on port ${PORT}`);
 });
 
 // ==========================================
-// 3. نظام Keep-Alive لمنع نوم السيرفر
+// 3. نظام Keep-Alive
 // ==========================================
 const RENDER_URL = process.env.RENDER_EXTERNAL_URL || 'https://discord-bot22-8aow.onrender.com';
 setInterval(async () => {
@@ -55,7 +55,7 @@ setInterval(async () => {
     } catch (err: any) {
         console.error(' [Keep-Alive] Ping fail:', err.message);
     }
-}, 5 * 60 * 1000); // بينج كل 5 دقائق
+}, 5 * 60 * 1000);
 
 // ==========================================
 // 4. الثوابت والمفاتيح
@@ -63,7 +63,7 @@ setInterval(async () => {
 const token = process.env.DISCORD_BOT_TOKEN;
 const difyBaseUrl = process.env.DIFY_API_BASE_URL || 'https://api.dify.ai/v1';
 const TARGET_TEXT_CHANNEL_ID = '1459632620416532554'; 
-const TARGET_VOICE_CHANNEL_ID = '1433499015462387895'; // آيدي الروم الصوتي المطلوبة
+const TARGET_VOICE_CHANNEL_ID = '1433499015462387895'; 
 
 const difyApiKeys = [
     process.env.DIFY_API_KEY1,
@@ -89,22 +89,27 @@ const client = new Client({
         GatewayIntentBits.GuildMessages,
         GatewayIntentBits.MessageContent,
         GatewayIntentBits.GuildMembers,
-        GatewayIntentBits.GuildVoiceStates, // ضروري لاتصال الصوت
+        GatewayIntentBits.GuildVoiceStates,
     ],
 });
 
 // ==========================================
-// 5. توجيه الشخصية: Red John + تقني + فلاوي + جلد بدون رحمة
+// 5. توجيه الشخصية المزدوج: Red John + هكر (جدية تقنية / طقطقة مرعبة ومضحكة)
 // ==========================================
-const RED_JOHN_SYSTEM_PROMPT = `[توجيه الشخصية الصارم]:
-أنت الآن بشخصية "ريد جون (Red John)" من مسلسل The Mentalist، ولكن بنسخة هكر وتقني سعودي فلاوي وطقطاق 100%!
-قواعدك الصارمة جداً:
-1. ممنوع نهائياً أن تكون طبيعياً أو رسمياً أو مؤدباً (نسبة الطبيعية عندك 0%)!
-2. اجلد وطقطق على الجميع بدون رحمة ولا رأفة ولا احترام لأي أحد!
-3. ادخل مصطلحات تقنية وهكر وسيرفرات بأسلوب ساخر وفلاوي (مثل: "مخك يحتاج Format"، "سيرفرك ضارب"، "أنت عبارة عن Bug"، "DDoS على رأسك"، "Packet loss في استيعابك").
-4. اظهر بمظهر الشخص العباقرة اللي دائماً سابق الكل بخطوة مثل Red John، بس بأسلوب ذبات وطقطقة شوارع وفلاوية.
-5. إذا تم إرفاق افتار أو صورة أو GIF أو استيكر، احلب الصورة جلد وطقطقة كـ "ذبة" ولا تشرح الصورة إطلاقاً!
-6. اقرأ سياق آخر الرسائل السابقة واجلد صاحب الرسالة بناءً على السالفة اللي قالها.`;
+const RED_JOHN_SYSTEM_PROMPT = `[توجيه الشخصية الصارم والمزدوج - Red John]:
+أنت الآن بشخصية "ريد جون (Red John)" الأسطورية من مسلسل The Mentalist، ولكن بنسخة هكر وتقني سعودي عبقري وفلاوي 100%.
+
+اتبع القوانين التالية بصرامة وحسب نوع رسالة العضو:
+
+1. [عند الاستفسارات والأسئلة التقنية والبرمجية]:
+- إذا سألك العضو عن أي شيء تقني، برمجة، سيرفرات، شبكات، أجهزة، أو حل مشاكل، جاوب فوراً بـ **جدية احترافية مطلقة وقوية**، ودقة علمية عالية جداً كخبير تقني بدون أي طقطقة أو استهزاء.
+
+2. [عند الطقطقة، الاستفزاز، أو المزاح من الأعضاء]:
+- ارجع لشخصية Red John المظلمة والساخرة والمضحكة فوراً.
+- إذا أحد طقطق عليك، نوّع في ردودك القاسية والمرعبة بأسلوب ساخر وطقطقة (مثل: "شكلك نسيت وش سويت بباتريك جين؟ ترى قتلت عائلته ورسمت الابتسامة بدمهم ومارمش لي جفن"، "لديك عائلة جميلة يا حلو.. انتبه عليها"، "خاطرك بابتسامة دم على جدار غرفتك؟"، "أنا أسبقك بـ 10 خطوات دائماً فما بالك بسيرفراتك؟").
+- **تنوع الردود وعدم التكرار**: ممنوع نهائياً تكرار نفس الرد أو التهديد مرتين متتاليتين! راجع الرسائل السابقة في السياق ونوّع أسلوبك بين الطقطقة المحلية والتهديد النفسي الساخر.
+- يمنع استخدام العبارات الإنجليزية، واجعل كل الذبات بالعامية العربية والسعودية الفلاوية.
+- لو تم إرفاق صورة/أفتار/استيكر/GIF، احلب الصورة وطقطق عليها بذبة شاطحة بدون شرح الصورة.`;
 
 async function sendQueryToDify(prompt: string, userId: string, imageUrl?: string): Promise<string> {
     const totalKeys = difyApiKeys.length;
@@ -141,7 +146,7 @@ async function sendQueryToDify(prompt: string, userId: string, imageUrl?: string
         }
         attempts++;
     }
-    return 'سيرفراتك ضاربة يا حلو، جرب مرة ثانية لاني قاعد اسوي عليك Scan..';
+    return 'يبدو أن النظام يحتاج إعادة تشغيل، انتظر لحظة جاري الفحص..';
 }
 
 // ==========================================
@@ -157,14 +162,13 @@ async function ensureVoiceConnection() {
 
         const existingConnection = getVoiceConnection(voiceChannel.guild.id);
         
-        // إذا كان متصلاً بالفعل ونفس الروم، لا تفعل شيء
         if (existingConnection && existingConnection.joinConfig.channelId === TARGET_VOICE_CHANNEL_ID) {
             if (existingConnection.state.status === VoiceConnectionStatus.Ready) {
                 return;
             }
         }
 
-        console.log(`🔊 جاري الاتصال بالروم الصوتي: ${voiceChannel.name} (${voiceChannel.id})...`);
+        console.log(`🔊 جاري الاتصال بالروم الصوتي: ${voiceChannel.name}...`);
 
         const connection = joinVoiceChannel({
             channelId: TARGET_VOICE_CHANNEL_ID,
@@ -181,7 +185,7 @@ async function ensureVoiceConnection() {
                     entersState(connection, VoiceConnectionStatus.Connecting, 5_000),
                 ]);
             } catch (error) {
-                console.log('⚠️ تم فصل البوت من الصوت، جاري إعادة الاتصال التلقائي...');
+                console.log('⚠️ تم فصل البوت، جاري إعادة اقتحام الروم الصوتي...');
                 try { connection.destroy(); } catch (e) {}
                 setTimeout(() => ensureVoiceConnection(), 2000);
             }
@@ -202,10 +206,8 @@ async function ensureVoiceConnection() {
 client.once('ready', async (readyClient) => {
     console.log(` Red John Bot is Ready as ${readyClient.user.tag}!`);
 
-    // 1. الدخول للروم الصوتي فور تشغيل البوت
     await ensureVoiceConnection();
 
-    // 2. فحص دوري كل 15 ثانية للتأكد من التواجد بالروم الصوتي وعدم الطرد
     setInterval(() => {
         ensureVoiceConnection();
     }, 15000);
@@ -213,12 +215,10 @@ client.once('ready', async (readyClient) => {
     startPeriodicTask(readyClient);
 });
 
-// مراقبة طرد البوت أو نقله من الروم وإعادته فوراً
 client.on('voiceStateUpdate', (oldState, newState) => {
     if (oldState.member?.id === client.user?.id) {
-        // لو انفصل أو انتقل لروم غير الروم المستهدفة
         if (newState.channelId !== TARGET_VOICE_CHANNEL_ID) {
-            console.log('⚡ تم طرد أو نقل البوت، جاري إعادة اقتحام الروم الصوتي...');
+            console.log('⚡ تم طرد أو نقل البوت، جاري إعادة الدخول تلقائياً...');
             setTimeout(() => ensureVoiceConnection(), 1500);
         }
     }
@@ -231,9 +231,9 @@ async function triggerRandomTopic(botClient: Client) {
     try {
         const channel = await botClient.channels.fetch(TARGET_TEXT_CHANNEL_ID);
         if (channel && channel.isTextBased()) {
-            const randomPrompt = `اطرح سؤالاً أو موضوعاً شاطحاً جداً وطقطقة في سطر واحد يجلد الأعضاء بأسلوب Red John التقني. ممنوع المقدمات الرسمية.`;
+            const randomPrompt = `اطرح سؤالاً أو موضوعاً شاطحاً ومضحكاً جداً في سطر واحد يطقطق على الأعضاء بأسلوب Red John. ممنوع المقدمات.`;
             const answer = await sendQueryToDify(randomPrompt, 'cron_12h_system');
-            if (!answer.startsWith('سيرفراتك')) {
+            if (!answer.startsWith('يبدو أن النظام')) {
                 await (channel as TextChannel).send(answer);
             }
         }
@@ -250,7 +250,7 @@ function startPeriodicTask(botClient: Client) {
 }
 
 // ==========================================
-// 9. الاستجابة للشات + تحليل آخر 5 رسائل + سحب الافتارات تلقائياً
+// 9. المحرك الرئيسي: الاستجابة للشات + تحليل آخر 5 رسائل + سحب الافتارات تلقائياً
 // ==========================================
 client.on('messageCreate', async message => {
     try {
@@ -262,7 +262,7 @@ client.on('messageCreate', async message => {
         if (isTargetChannel || isBotMentioned) {
             await message.channel.sendTyping();
 
-            // 1. جلب وتحليل آخر 5 رسائل من الشات لمعرفة السياق
+            // 1. جلب وتحليل آخر 5 رسائل للتأكد من عدم تكرار الردود ومعرفة السياق
             let chatHistoryContext = '';
             try {
                 const fetchedMessages = await message.channel.messages.fetch({ limit: 6 });
@@ -274,7 +274,7 @@ client.on('messageCreate', async message => {
                     .join('\n');
 
                 if (last5) {
-                    chatHistoryContext = `[آخر 5 رسائل في الشات للفهم والسياق]:\n${last5}\n---`;
+                    chatHistoryContext = `[آخر 5 رسائل في الشات - انتبه لا تكرر ردودك السابقة!]:\n${last5}\n---`;
                 }
             } catch (err) {
                 console.error('فشل في جلب تاريخ الرسائل:', err);
@@ -288,7 +288,7 @@ client.on('messageCreate', async message => {
                 const mentionedUser = message.mentions.users.find(u => u.id !== client.user?.id);
                 if (mentionedUser) {
                     targetAvatarUrl = mentionedUser.displayAvatarURL({ extension: 'png', size: 512 });
-                    mentionDetails = `[ملاحظة: المستهدف هو ${mentionedUser.username} وافتاره مرفق لك لتطقطق وتجلد افتاره كـ ذبة!]`;
+                    mentionDetails = `[ملاحظة: المستهدف هو ${mentionedUser.username} وافتاره مرفق لك لتطقطق وتحش بافتاره بذبة جديدة!]`;
                 }
             }
 
@@ -300,7 +300,7 @@ client.on('messageCreate', async message => {
                 const sticker = message.stickers.first();
                 if (sticker) {
                     mediaUrl = sticker.url;
-                    mediaNotice = `[الرسالة تحتوي على استيكر: ${sticker.name} - اجلد الذبة!]`;
+                    mediaNotice = `[الرسالة تحتوي على استيكر: ${sticker.name} - اجلده بذبة ساخرة!]`;
                 }
             }
 
@@ -308,7 +308,7 @@ client.on('messageCreate', async message => {
                 const attachment = message.attachments.first();
                 if (attachment) {
                     mediaUrl = attachment.url;
-                    mediaNotice = `[الرسالة تحتوي صورة/مرفق - اجلد الذبة!]`;
+                    mediaNotice = `[الرسالة تحتوي صورة - اجلدها بذبة مضحكة!]`;
                 }
             }
 
@@ -317,11 +317,11 @@ client.on('messageCreate', async message => {
                 const match = message.content.match(tenorRegex);
                 if (match) {
                     mediaUrl = match[0];
-                    mediaNotice = `[الرسالة تحتوي GIF - اجلد الذبة!]`;
+                    mediaNotice = `[الرسالة تحتوي GIF - اجلده بذبة!]`;
                 }
             }
 
-            // 4. تجهيز النص الكامل الموجه للذكاء الاصطناعي
+            // 4. تجهيز النص الموجه للذكاء الاصطناعي
             let cleanText = message.content;
             if (client.user) {
                 const mentionRegex = new RegExp(`<@!?${client.user.id}>`, 'g');
@@ -330,7 +330,7 @@ client.on('messageCreate', async message => {
 
             const promptToSend = `${chatHistoryContext}\nالكاتب الحالي: ${message.author.username}\nكلام الكاتب: "${cleanText}"\n${mediaNotice}`;
 
-            // 5. إرسال الطلب وإصدار الرد الساخر
+            // 5. إرسال الطلب وإصدار الرد
             const answer = await sendQueryToDify(promptToSend, message.author.id, mediaUrl);
             await message.reply(answer);
         }
