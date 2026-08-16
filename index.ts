@@ -6,7 +6,6 @@ import {
     Routes, 
     SlashCommandBuilder, 
     TextChannel,
-    MessageFlags,
     AttachmentBuilder
 } from 'discord.js';
 import { 
@@ -15,15 +14,15 @@ import {
     entersState, 
     getVoiceConnection,
     createAudioPlayer,
-    createAudioResource,
-    AudioPlayerStatus
+    createAudioResource
 } from '@discordjs/voice';
 import axios from 'axios';
 import dotenv from 'dotenv';
 import http from 'http';
 import fs from 'fs';
 import path from 'path';
-import ytDlp from 'yt-dlp-exec';
+
+const ytDlp = require('yt-dlp-exec');
 
 dotenv.config();
 
@@ -320,26 +319,26 @@ client.on('interactionCreate', async interaction => {
         isChatRespondingEnabled = !isChatRespondingEnabled;
         await interaction.reply({ 
             content: `تم ${isChatRespondingEnabled ? '🟢 تفعيل' : '🔴 تعطيل'} ردود الشات التلقائية.`, 
-            flags: MessageFlags.Ephemeral 
+            ephemeral: true 
         });
     } 
     else if (commandName === 'topics-toggle') {
         isAutoTopicsEnabled = !isAutoTopicsEnabled;
         await interaction.reply({ 
             content: `تم ${isAutoTopicsEnabled ? '🟢 تفعيل' : '🔴 تعطيل'} مواضيع الـ 12 ساعة التلقائية.`, 
-            flags: MessageFlags.Ephemeral 
+            ephemeral: true 
         });
     }
     else if (commandName === 'voice-toggle') {
         isVoiceResponseEnabled = !isVoiceResponseEnabled;
         await interaction.reply({ 
             content: `تم ${isVoiceResponseEnabled ? '🟢 تفعيل' : '🔴 تعطيل'} تحويل ردود الذكاء الاصطناعي لصوت في الروم الصوتي.`, 
-            flags: MessageFlags.Ephemeral 
+            ephemeral: true 
         });
     }
     else if (commandName === 'speak') {
         const textToSpeak = interaction.options.getString('text', true);
-        await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+        await interaction.deferReply({ ephemeral: true });
         await playTextToSpeech(textToSpeak);
         await interaction.editReply({ content: `🗣️ جاري نطق النص في الروم الصوتي: "${textToSpeak}"` });
     }
@@ -349,7 +348,7 @@ client.on('interactionCreate', async interaction => {
 • مواضيع الـ 12 ساعة: ${isAutoTopicsEnabled ? '🟢 مفعلة' : '🔴 معطلة'}
 • القراءة الصوتية (TTS): ${isVoiceResponseEnabled ? '🟢 مفعلة' : '🔴 معطلة'}
 • عدد مفاتيح Dify النشطة: ${difyApiKeys.length}`;
-        await interaction.reply({ content: statusMsg, flags: MessageFlags.Ephemeral });
+        await interaction.reply({ content: statusMsg, ephemeral: true });
     }
 });
 
@@ -391,7 +390,6 @@ client.on('messageCreate', async message => {
     try {
         if (message.author.bot) return;
 
-        // استجابة الذكاء الاصطناعي للشات المخصص أو المنشن
         if (!isChatRespondingEnabled) return;
 
         const isTargetChannel = message.channelId === TARGET_TEXT_CHANNEL_ID;
