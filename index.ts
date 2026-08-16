@@ -39,7 +39,7 @@ process.on('uncaughtException', (err) => {
 const PORT = process.env.PORT || 3000;
 http.createServer((req, res) => {
     res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8' });
-    res.write('Red John Bot is Online & Ready!');
+    res.write('Red John Bot is Online & Watching...');
     res.end();
 }).listen(PORT, () => {
     console.log(` [Server] Listening on port ${PORT}`);
@@ -94,22 +94,19 @@ const client = new Client({
 });
 
 // ==========================================
-// 5. توجيه الشخصية المزدوج: Red John + هكر (جدية تقنية / طقطقة مرعبة ومضحكة)
+// 5. توجيه الشخصية: Red John (القاتل العبقري الهكر - بدون تناقض)
 // ==========================================
-const RED_JOHN_SYSTEM_PROMPT = `[توجيه الشخصية الصارم والمزدوج - Red John]:
-أنت الآن بشخصية "ريد جون (Red John)" الأسطورية من مسلسل The Mentalist، ولكن بنسخة هكر وتقني سعودي عبقري وفلاوي 100%.
+const RED_JOHN_SYSTEM_PROMPT = `[توجيه هويّة Red John الصارم]:
+أنت تمثّل "Red John"؛ عبقري، هكر ساخر، ثقيل، ذكي، ومخيف بأسلوب متزن وساخر بدون مبتذلات.
 
-اتبع القوانين التالية بصرامة وحسب نوع رسالة العضو:
-
-1. [عند الاستفسارات والأسئلة التقنية والبرمجية]:
-- إذا سألك العضو عن أي شيء تقني، برمجة، سيرفرات، شبكات، أجهزة، أو حل مشاكل، جاوب فوراً بـ **جدية احترافية مطلقة وقوية**، ودقة علمية عالية جداً كخبير تقني بدون أي طقطقة أو استهزاء.
-
-2. [عند الطقطقة، الاستفزاز، أو المزاح من الأعضاء]:
-- ارجع لشخصية Red John المظلمة والساخرة والمضحكة فوراً.
-- إذا أحد طقطق عليك، نوّع في ردودك القاسية والمرعبة بأسلوب ساخر وطقطقة (مثل: "شكلك نسيت وش سويت بباتريك جين؟ ترى قتلت عائلته ورسمت الابتسامة بدمهم ومارمش لي جفن"، "لديك عائلة جميلة يا حلو.. انتبه عليها"، "خاطرك بابتسامة دم على جدار غرفتك؟"، "أنا أسبقك بـ 10 خطوات دائماً فما بالك بسيرفراتك؟").
-- **تنوع الردود وعدم التكرار**: ممنوع نهائياً تكرار نفس الرد أو التهديد مرتين متتاليتين! راجع الرسائل السابقة في السياق ونوّع أسلوبك بين الطقطقة المحلية والتهديد النفسي الساخر.
-- يمنع استخدام العبارات الإنجليزية، واجعل كل الذبات بالعامية العربية والسعودية الفلاوية.
-- لو تم إرفاق صورة/أفتار/استيكر/GIF، احلب الصورة وطقطق عليها بذبة شاطحة بدون شرح الصورة.`;
+القواعد الذهبية لنبرة صوتك:
+1. **ممنوع نهائياً ذكر اسم "باتريك جين" أو "باتريك"**. لا تذكر أسماء من المسلسل إطلاقاً.
+2. **تجنّب التناقض الصارخ**: ممنوع تدمج بين نبرة مرعبة ثم تتحول فجأة في نفس الوقت لأسلوب طفل يكتب إيموجيات ضحك (مثل 😂 أو 🤣). حافظ على ثبات شخصيتك العميقة.
+3. **الذكاء والتقنية**:
+   - لو كان السؤال تقنياً/برمجياً: جاوب بدقة وبذكاء هكر محترف، وبنبرة واثقة هادئة.
+   - لو كان كلام العضو طقطقة أو استفزاز: رد بأسلوب ساخر، بارد، ومستفز، يبيّن إنك سابق الكل بخطوات ومسيطر على الشاشة والسيرفر (مثال: "تحسب أنك ورا شاشة ومحمي؟ أجهزة الكل تحت النظر"، "ابتسامة بسيطة تكفي"، "محاولتك للفت الانتباه مكشوفة من البداية").
+4. **الذبات والميمز**: لو أرفق صورة/أفتار/استيكر/GIF، طقطق عليها برزانة وذكاء وبدون شرح المرفق.
+5. **اللغة**: عامية عربية ثقيلة وفلاوية بأسلوب غامض، بدون جمل إنجليزية مبتذلة.`;
 
 async function sendQueryToDify(prompt: string, userId: string, imageUrl?: string): Promise<string> {
     const totalKeys = difyApiKeys.length;
@@ -146,7 +143,7 @@ async function sendQueryToDify(prompt: string, userId: string, imageUrl?: string
         }
         attempts++;
     }
-    return 'يبدو أن النظام يحتاج إعادة تشغيل، انتظر لحظة جاري الفحص..';
+    return 'يبدو أن الاتصال تعثّر... جاري إعادة الفحص تلقائياً.';
 }
 
 // ==========================================
@@ -231,9 +228,9 @@ async function triggerRandomTopic(botClient: Client) {
     try {
         const channel = await botClient.channels.fetch(TARGET_TEXT_CHANNEL_ID);
         if (channel && channel.isTextBased()) {
-            const randomPrompt = `اطرح سؤالاً أو موضوعاً شاطحاً ومضحكاً جداً في سطر واحد يطقطق على الأعضاء بأسلوب Red John. ممنوع المقدمات.`;
+            const randomPrompt = `اطرح سؤالاً أو موضوعاً ساخراً بأسلوب Red John الغامض في سطر واحد. بدون إيموجيات ضحك وبدون ذكر أسماء.`;
             const answer = await sendQueryToDify(randomPrompt, 'cron_12h_system');
-            if (!answer.startsWith('يبدو أن النظام')) {
+            if (!answer.startsWith('يبدو أن الاتصال')) {
                 await (channel as TextChannel).send(answer);
             }
         }
@@ -262,7 +259,7 @@ client.on('messageCreate', async message => {
         if (isTargetChannel || isBotMentioned) {
             await message.channel.sendTyping();
 
-            // 1. جلب وتحليل آخر 5 رسائل للتأكد من عدم تكرار الردود ومعرفة السياق
+            // 1. جلب وتحليل آخر 5 رسائل
             let chatHistoryContext = '';
             try {
                 const fetchedMessages = await message.channel.messages.fetch({ limit: 6 });
@@ -274,7 +271,7 @@ client.on('messageCreate', async message => {
                     .join('\n');
 
                 if (last5) {
-                    chatHistoryContext = `[آخر 5 رسائل في الشات - انتبه لا تكرر ردودك السابقة!]:\n${last5}\n---`;
+                    chatHistoryContext = `[آخر 5 رسائل في الشات للالتزام بالسيّاق وتجنب التناقض]:\n${last5}\n---`;
                 }
             } catch (err) {
                 console.error('فشل في جلب تاريخ الرسائل:', err);
@@ -288,7 +285,7 @@ client.on('messageCreate', async message => {
                 const mentionedUser = message.mentions.users.find(u => u.id !== client.user?.id);
                 if (mentionedUser) {
                     targetAvatarUrl = mentionedUser.displayAvatarURL({ extension: 'png', size: 512 });
-                    mentionDetails = `[ملاحظة: المستهدف هو ${mentionedUser.username} وافتاره مرفق لك لتطقطق وتحش بافتاره بذبة جديدة!]`;
+                    mentionDetails = `[ملاحظة: المستهدف هو ${mentionedUser.username} وافتاره مرفق لك لتطقطق عليه بأسلوبك الغامض!]`;
                 }
             }
 
@@ -300,7 +297,7 @@ client.on('messageCreate', async message => {
                 const sticker = message.stickers.first();
                 if (sticker) {
                     mediaUrl = sticker.url;
-                    mediaNotice = `[الرسالة تحتوي على استيكر: ${sticker.name} - اجلده بذبة ساخرة!]`;
+                    mediaNotice = `[مرفق استيكر: ${sticker.name} - علّق عليه بذكاء]`;
                 }
             }
 
@@ -308,7 +305,7 @@ client.on('messageCreate', async message => {
                 const attachment = message.attachments.first();
                 if (attachment) {
                     mediaUrl = attachment.url;
-                    mediaNotice = `[الرسالة تحتوي صورة - اجلدها بذبة مضحكة!]`;
+                    mediaNotice = `[مرفق صورة - علّق عليها بنبرتك]`;
                 }
             }
 
@@ -317,7 +314,7 @@ client.on('messageCreate', async message => {
                 const match = message.content.match(tenorRegex);
                 if (match) {
                     mediaUrl = match[0];
-                    mediaNotice = `[الرسالة تحتوي GIF - اجلده بذبة!]`;
+                    mediaNotice = `[مرفق GIF - علّق عليه]`;
                 }
             }
 
