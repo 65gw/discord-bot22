@@ -251,7 +251,7 @@ async function handleMediaDownloadSlash(interaction: any, url: string) {
         const attachment = new AttachmentBuilder(downloadedFilePath);
 
         await interaction.editReply({
-            content: `🎬 **تم التحميل بنجاح بواسطة Red John**\n🔗 **الرابط الأصلي:** <${url}>`,
+            content: `🎬 **تم التحميل بنجاح بواسطة Red John**`,
             files: [attachment]
         });
 
