@@ -1,4 +1,9 @@
 // @ts-nocheck
+import ffmpegPath from 'ffmpeg-static';
+if (ffmpegPath) {
+    process.env.FFMPEG_PATH = ffmpegPath;
+}
+
 import { 
     Client, 
     GatewayIntentBits, 
@@ -17,22 +22,15 @@ import {
     entersState,
     createAudioPlayer,
     createAudioResource,
-    StreamType
+    AudioPlayerStatus
 } from '@discordjs/voice';
 import axios from 'axios';
 import dotenv from 'dotenv';
 import http from 'http';
-import ffmpegPath from 'ffmpeg-static';
-import { Readable } from 'stream';
+import fs from 'fs';
+import path from 'path';
 
 dotenv.config();
-
-// ==========================================
-// ربط مسار FFmpeg بالنظام
-// ==========================================
-if (ffmpegPath) {
-    process.env.FFMPEG_PATH = ffmpegPath;
-}
 
 // ==========================================
 // 1. نظام الحماية من الكراش
@@ -107,9 +105,11 @@ const client = new Client({
 });
 
 // ==========================================
-// دالة تشغيل ونطق الصوت الفعلي في الروم
+// دالة تشغيل ونطق الصوت المضمونة (عبر الملفات المؤقتة)
 // ==========================================
 async function playTTSSpeech(connection: any, text: string) {
+    const tmpFilePath = path.join('/tmp', `speech_${Date.now()}.mp3`);
+
     try {
         const cleanedText = text
             .replace(/```[\s\S]*?```/g, 'كود برمجي')
@@ -118,10 +118,10 @@ async function playTTSSpeech(connection: any, text: string) {
             .replace(/https?:\/\/\S+/g, 'رابط')
             .trim();
 
-        const speechText = cleanedText.slice(0, 250); 
+        const speechText = cleanedText.slice(0, 200); 
         if (!speechText) return;
 
-        // استخدام مزود صوتي سحابي لا يحجب سيرفرات Render
+        // جلب الملف الصوتي من محرك StreamElements
         const ttsUrl = `https://api.streamelements.com/kappa/v2/speech?voice=Zeina&text=${encodeURIComponent(speechText)}`;
 
         const response = await axios.get(ttsUrl, {
@@ -131,23 +131,31 @@ async function playTTSSpeech(connection: any, text: string) {
             }
         });
 
-        const stream = Readable.from(Buffer.from(response.data));
+        // كتابة الصوت كملف مؤقت في السيرفر لضمان قراءته بواسطة FFmpeg
+        fs.writeFileSync(tmpFilePath, Buffer.from(response.data));
 
         await entersState(connection, VoiceConnectionStatus.Ready, 15_000);
 
-        const resource = createAudioResource(stream, {
-            inputType: StreamType.Arbitrary
-        });
-
+        // إنشاء المورد الصوتي مباشرة من مسار الملف
+        const resource = createAudioResource(tmpFilePath);
         const player = createAudioPlayer();
+
         connection.subscribe(player);
         player.play(resource);
 
+        // تنظيف وحذف الملف بعد انتهاء النطق
+        player.on(AudioPlayerStatus.Idle, () => {
+            if (fs.existsSync(tmpFilePath)) fs.unlinkSync(tmpFilePath);
+        });
+
         player.on('error', (error) => {
             console.error(' [TTS Player Error]:', error.message);
+            if (fs.existsSync(tmpFilePath)) fs.unlinkSync(tmpFilePath);
         });
+
     } catch (err: any) {
         console.error(' [TTS Exception]:', err.message);
+        if (fs.existsSync(tmpFilePath)) fs.unlinkSync(tmpFilePath);
     }
 }
 
