@@ -17,7 +17,6 @@ import {
     entersState,
     createAudioPlayer,
     createAudioResource,
-    AudioPlayerStatus,
     StreamType
 } from '@discordjs/voice';
 import axios from 'axios';
@@ -99,11 +98,10 @@ const client = new Client({
 });
 
 // ==========================================
-// دالة معالجة ونطق الصوت في الروم (TTS)
+// دالة تشغيل ونطق الصوت الفعلي في الروم
 // ==========================================
-function playTTSSpeech(connection: any, text: string) {
+async function playTTSSpeech(connection: any, text: string) {
     try {
-        // تنظيف النص من الرموز، التنسيقات، والأكواد لضمان نطق آلي ممتاز
         const cleanedText = text
             .replace(/```[\s\S]*?```/g, 'كود برمجي')
             .replace(/`([^`]+)`/g, '$1')
@@ -111,17 +109,27 @@ function playTTSSpeech(connection: any, text: string) {
             .replace(/https?:\/\/\S+/g, 'رابط')
             .trim();
 
-        // اقتطاع النص إلى أول 250 حرفاً لتفادي البطء في نطق الجمل الطويلة جداً
-        const speechText = cleanedText.slice(0, 250); 
+        const speechText = cleanedText.slice(0, 200); 
         if (!speechText) return;
 
         const ttsUrl = `https://translate.google.com/translate_tts?ie=UTF-8&q=${encodeURIComponent(speechText)}&tl=ar&client=tw-ob`;
 
-        const resource = createAudioResource(ttsUrl, {
+        // جلب مقطع الصوت بتمويه متصفح لمنع حجب جوجل بالسيرفرات
+        const response = await axios.get(ttsUrl, {
+            responseType: 'stream',
+            headers: {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+            }
+        });
+
+        // انتظار استقرار جاهزية الاتصال الصوتي قبل إرسال الحزم
+        await entersState(connection, VoiceConnectionStatus.Ready, 10_000);
+
+        const resource = createAudioResource(response.data, {
             inputType: StreamType.Arbitrary
         });
-        const player = createAudioPlayer();
 
+        const player = createAudioPlayer();
         connection.subscribe(player);
         player.play(resource);
 
@@ -315,37 +323,29 @@ client.on('interactionCreate', async interaction => {
 
             await interaction.deferReply();
 
-            // الاتصال بالروم الصوتي
-            let connection = getVoiceConnection(interaction.guildId!);
-            if (!connection) {
-                connection = joinVoiceChannel({
-                    channelId: voiceChannel.id,
-                    guildId: voiceChannel.guild.id,
-                    adapterCreator: voiceChannel.guild.voiceAdapterCreator,
-                    selfDeaf: false,
-                    selfMute: false
-                });
+            try {
+                let connection = getVoiceConnection(interaction.guildId!);
+                if (!connection || connection.state.status === VoiceConnectionStatus.Destroyed) {
+                    connection = joinVoiceChannel({
+                        channelId: voiceChannel.id,
+                        guildId: voiceChannel.guild.id,
+                        adapterCreator: voiceChannel.guild.voiceAdapterCreator,
+                        selfDeaf: false,
+                        selfMute: false
+                    });
+                }
 
-                connection.on(VoiceConnectionStatus.Disconnected, async () => {
-                    try {
-                        await Promise.race([
-                            entersState(connection, VoiceConnectionStatus.Signalling, 5_000),
-                            entersState(connection, VoiceConnectionStatus.Connecting, 5_000),
-                        ]);
-                    } catch (error) {
-                        connection.destroy();
-                    }
-                });
+                // جلب الإجابة من Dify
+                const answer = await sendQueryToDify(prompt, interaction.user.id);
+
+                // تشغيل الصوت
+                await playTTSSpeech(connection, answer);
+
+                await interaction.editReply(`🗣️ **[يتحدث الآن في روم: ${voiceChannel.name}]**\n\n${answer}`);
+            } catch (err) {
+                console.error(' [Voice Connection Error]:', err);
+                await interaction.editReply('❌ تعذر الاتصال الصوتي بالروم، تأكد من صلاحيات البوت.');
             }
-
-            // جلب الإجابة من Dify
-            const answer = await sendQueryToDify(prompt, interaction.user.id);
-
-            // نطق الإجابة صوتاً داخل الروم
-            playTTSSpeech(connection, answer);
-
-            // عرض النص في الشات كمرجع
-            await interaction.editReply(`🗣️ **[يتحدث الآن في روم: ${voiceChannel.name}]**\n\n${answer}`);
         } 
         else if (subcommand === 'exit') {
             const connection = getVoiceConnection(interaction.guildId!);
