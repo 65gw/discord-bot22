@@ -65,7 +65,6 @@ const token = process.env.DISCORD_BOT_TOKEN;
 const difyBaseUrl = process.env.DIFY_API_BASE_URL || 'https://api.dify.ai/v1';
 
 const TARGET_TEXT_CHANNEL_ID = '1459632620416532554'; 
-const TARGET_VOICE_CHANNEL_ID = '1433499015462387895'; 
 
 const difyApiKeys = [
     process.env.DIFY_API_KEY1,
@@ -77,8 +76,6 @@ const difyApiKeys = [
 
 let currentKeyIndex = 0;
 let isAutoTopicsEnabled = true; 
-let isSavageModeEnabled = false; 
-let isHumanPersona = true; 
 let isChatRespondingEnabled = true; 
 let periodicTimer: NodeJS.Timeout | null = null;
 
@@ -97,42 +94,6 @@ const client = new Client({
     ],
 });
 
-// دالة الدخول الثابت للروم الصوتي مع إعادة الاتصال التلقائي عند أي ريستارت أو انقطاع
-async function autoConnectVoice(botClient: Client) {
-    try {
-        const channel = await botClient.channels.fetch(TARGET_VOICE_CHANNEL_ID);
-        if (!channel || !channel.isVoiceBased()) {
-            console.log('❌ الروم الصوتي غير موجود أو خطأ في المعرف.');
-            return;
-        }
-
-        const connection = joinVoiceChannel({
-            channelId: channel.id,
-            guildId: channel.guild.id,
-            adapterCreator: channel.guild.voiceAdapterCreator,
-            selfDeaf: false,
-            selfMute: false
-        });
-
-        connection.on(VoiceConnectionStatus.Disconnected, async () => {
-            try {
-                await Promise.race([
-                    entersState(connection, VoiceConnectionStatus.Signalling, 5_000),
-                    entersState(connection, VoiceConnectionStatus.Connecting, 5_000),
-                ]);
-            } catch (error) {
-                connection.destroy();
-                setTimeout(() => autoConnectVoice(botClient), 5_000);
-            }
-        });
-
-        console.log(`🔊 [Voice] البوت متواجد الآن بثبات في الروم الصوتي: ${channel.name}`);
-    } catch (error) {
-        console.error('Error auto connecting to voice channel:', error);
-        setTimeout(() => autoConnectVoice(botClient), 10_000);
-    }
-}
-
 // ==========================================
 // 5. تسجيل أوامر Slash والبدء
 // ==========================================
@@ -147,6 +108,24 @@ client.once('ready', async (readyClient) => {
                 option.setName('prompt')
                     .setDescription('الرسالة')
                     .setRequired(true)
+            ),
+        new SlashCommandBuilder()
+            .setName('room')
+            .setDescription('التحكم بتواجد البوت في الروم الصوتي')
+            .addSubcommand(subcommand =>
+                subcommand
+                    .setName('ask')
+                    .setDescription('اطرح سؤالاً، يدخل البوت رومك الصوتي ويجاوب ويبقى فيه')
+                    .addStringOption(option =>
+                        option.setName('prompt')
+                            .setDescription('السؤال الذي تريد طرحه')
+                            .setRequired(true)
+                    )
+            )
+            .addSubcommand(subcommand =>
+                subcommand
+                    .setName('exit')
+                    .setDescription('إخراج البوت من الروم الصوتي')
             ),
         new SlashCommandBuilder()
             .setName('chat-toggle')
@@ -187,9 +166,6 @@ client.once('ready', async (readyClient) => {
     }
 
     startPeriodicTask(readyClient);
-    
-    // الانضمام الفوري للروم الصوتي الثابت
-    await autoConnectVoice(readyClient);
 });
 
 // ==========================================
@@ -282,6 +258,55 @@ client.on('interactionCreate', async interaction => {
         const answer = await sendQueryToDify(prompt, interaction.user.id);
         await interaction.editReply(answer);
     }
+    else if (commandName === 'room') {
+        const subcommand = interaction.options.getSubcommand();
+
+        if (subcommand === 'ask') {
+            const prompt = interaction.options.getString('prompt', true);
+            const member = interaction.member as GuildMember;
+            const voiceChannel = member?.voice?.channel;
+
+            if (!voiceChannel) {
+                await interaction.reply({ content: '❌ يجب أن تكون متصلاً بروم صوتي أولاً لكي يدخل البوت إليك!', flags: MessageFlags.Ephemeral });
+                return;
+            }
+
+            await interaction.deferReply();
+
+            // الانضمام لروم المستخدم الصوتي
+            const connection = joinVoiceChannel({
+                channelId: voiceChannel.id,
+                guildId: voiceChannel.guild.id,
+                adapterCreator: voiceChannel.guild.voiceAdapterCreator,
+                selfDeaf: false,
+                selfMute: false
+            });
+
+            // التعامل مع أي انقطاع مفاجئ للاتصال بالروم
+            connection.on(VoiceConnectionStatus.Disconnected, async () => {
+                try {
+                    await Promise.race([
+                        entersState(connection, VoiceConnectionStatus.Signalling, 5_000),
+                        entersState(connection, VoiceConnectionStatus.Connecting, 5_000),
+                    ]);
+                } catch (error) {
+                    connection.destroy();
+                }
+            });
+
+            const answer = await sendQueryToDify(prompt, interaction.user.id);
+            await interaction.editReply(`🔊 **[تم الدخول إلى روم: ${voiceChannel.name}]**\n\n${answer}`);
+        } 
+        else if (subcommand === 'exit') {
+            const connection = getVoiceConnection(interaction.guildId!);
+            if (connection) {
+                connection.destroy();
+                await interaction.reply({ content: '👋 تم إخراج البوت من الروم الصوتي بنجاح.' });
+            } else {
+                await interaction.reply({ content: '❌ البوت ليس متصلاً بأي روم صوتي حالياً.', flags: MessageFlags.Ephemeral });
+            }
+        }
+    }
     else if (commandName === 'chat-toggle') {
         const status = interaction.options.getString('status', true);
         isChatRespondingEnabled = (status === 'enable');
@@ -295,7 +320,7 @@ client.on('interactionCreate', async interaction => {
         const amount = interaction.options.getInteger('amount', true);
         if (interaction.channel && 'bulkDelete' in interaction.channel) {
             await interaction.channel.bulkDelete(amount, true);
-            await interaction.reply({ content: `🧹 تم مسح ${amount} رسالة بنجاح!`, flags: MessageFlags.Ephemeral });
+            await interaction.reply({ content: '🧹 تم مسح الرسائل بنجاح!', flags: MessageFlags.Ephemeral });
         }
     }
 });
