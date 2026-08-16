@@ -22,8 +22,17 @@ import {
 import axios from 'axios';
 import dotenv from 'dotenv';
 import http from 'http';
+import ffmpegPath from 'ffmpeg-static';
+import { Readable } from 'stream';
 
 dotenv.config();
+
+// ==========================================
+// ربط مسار FFmpeg بالنظام
+// ==========================================
+if (ffmpegPath) {
+    process.env.FFMPEG_PATH = ffmpegPath;
+}
 
 // ==========================================
 // 1. نظام الحماية من الكراش
@@ -114,18 +123,20 @@ async function playTTSSpeech(connection: any, text: string) {
 
         const ttsUrl = `https://translate.google.com/translate_tts?ie=UTF-8&q=${encodeURIComponent(speechText)}&tl=ar&client=tw-ob`;
 
-        // جلب مقطع الصوت بتمويه متصفح لمنع حجب جوجل بالسيرفرات
+        // جلب مقطع الصوت كاملاً في الذاكرة لتفادي انقطاع البث
         const response = await axios.get(ttsUrl, {
-            responseType: 'stream',
+            responseType: 'arraybuffer',
             headers: {
                 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
             }
         });
 
+        const stream = Readable.from(Buffer.from(response.data));
+
         // انتظار استقرار جاهزية الاتصال الصوتي قبل إرسال الحزم
         await entersState(connection, VoiceConnectionStatus.Ready, 10_000);
 
-        const resource = createAudioResource(response.data, {
+        const resource = createAudioResource(stream, {
             inputType: StreamType.Arbitrary
         });
 
