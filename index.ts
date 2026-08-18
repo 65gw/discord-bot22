@@ -71,12 +71,15 @@ const client = new Client({
 });
 
 // ==========================================
-// 2. توجيه الهوية الجديد: مساعد برمجيات ذكي
+// 2. توجيه الهوية الجديد: بوت مساعد برمي ومختصر
 // ==========================================
 const PROGRAMMING_ASSISTANT_PROMPT = `[توجيه الهوية]:
-أنت بوت مساعد برمجيات ذكي ومحترف.
-وظيفتك مساعدة المستخدمين في البرمجة، حل المشاكل التقنية، كتابة وتصحيح الأكواد، وتوضيح المفاهيم بشكل مباشر وواضح وبدون أي أدوار شخصية خيالية.
-جاوب بدقة وبأسلوب محترف ومباشر.`;
+أنت بوت مساعد برمجيات ذكي، محترف، ومختصر.
+القواعد الذهبية لإجاباتك:
+1. اختصر ردودك لأقصى حد ممكن ولا تسولف أبداً.
+2. جاوب مباشرة على المطلوب (كود، حل مشكلة، أو معلومة تقنية) دون مقدمات أو خواتم طويلة.
+3. إذا كان السؤال عن كود، أعطِ الكود الصحيح فوراً مع شرح بسيط في سطر أو سطرين إن لزم الأمر.
+4. حافظ على أسلوب عملي ومباشر كـ Bot تقني حقيقي.`;
 
 // ==========================================
 // 3. سيرفر الويب لخدمة Render
@@ -178,7 +181,7 @@ async function sendQueryToDify(
 }
 
 // ==========================================
-// 6. نظام تشخيص الأخطاء المتقدم وإرسالها للوق
+// 6. نظام تشخيص الأخطاء وإرسالها للوق
 // ==========================================
 async function handleSystemCrashAndReport(error: any, errorType: string) {
     console.error(` [Crash Detected - ${errorType}]:`, error);
@@ -186,7 +189,6 @@ async function handleSystemCrashAndReport(error: any, errorType: string) {
     try {
         const errorMessage = error?.stack || error?.message || String(error);
         
-        // قراءة الكود المصدري للبوت
         let sourceCode = '';
         try {
             sourceCode = fs.readFileSync(__filename, 'utf8');
@@ -194,28 +196,25 @@ async function handleSystemCrashAndReport(error: any, errorType: string) {
             sourceCode = 'تعذر قراءة ملف الكود المصدري.';
         }
 
-        // إرسال الخطأ للذكاء الاصطناعي لتحليله وإيجاد السطر والتصحيح
-        const diagnosticPrompt = `حدث خطأ كراش في البوت أثناء التشغيل:
-[الخطأ / Stack Trace]:
+        const diagnosticPrompt = `حدث خطأ في البوت أثناء التشغيل:
+[الخطأ]:
 ${errorMessage.slice(0, 1500)}
 
-[أجزاء من الكود المصدري]:
+[الكود المصدري]:
 ${sourceCode.slice(0, 3000)}
 
-المطلوب منك:
-1. حدد في أي سطر/دالة حدثت المشكلة بالضبط.
-2. اشرح المشكلة بإيجاز.
-3. قدّم الكود المصحح للسطر المتضرر مباشرة.`;
+المطلوب:
+1. حدد السطر والمشكلة بشكل مباشر ومختصر.
+2. قدم الكود المصحح فقط.`;
 
         const aiAnalysis = await sendQueryToDify(diagnosticPrompt, 'system_crash_reporter');
 
-        // إرسال اللوق لروم اللوق
         const embed = new EmbedBuilder()
             .setColor('#ff0000')
             .setTitle(`🚨 رصد خطأ في النظام (${errorType})`)
             .addFields(
-                { name: '📄 تفاصيل الخطأ المباشر', value: `\`\`\`javascript\n${errorMessage.slice(0, 1000)}\n\`\`\`` },
-                { name: '🛠️ تحليل AI وموقع المشكلة مع الحل', value: aiAnalysis.slice(0, 1024) }
+                { name: '📄 تفاصيل الخطأ', value: `\`\`\`javascript\n${errorMessage.slice(0, 1000)}\n\`\`\`` },
+                { name: '🛠️ تحليل AI والحل المباشر', value: aiAnalysis.slice(0, 1024) }
             )
             .setTimestamp();
 
@@ -408,7 +407,7 @@ client.on('interactionCreate', async interaction => {
             interaction.user.id, 
             undefined, 
             async () => {
-                await interaction.editReply('⏳ **انتظر، يوجد ضغط على السيرفرات حالياً وجاري جلب الإجابة...**');
+                await interaction.editReply('⏳ **انتظر، يوجد ضغط على السيرفرات حالياً...**');
             }
         );
 
@@ -601,7 +600,7 @@ async function triggerRandomTopic(botClient: Client) {
     try {
         const channel = await botClient.channels.fetch(TARGET_TEXT_CHANNEL_ID);
         if (channel && channel.isTextBased()) {
-            const randomPrompt = `اطرح سؤالاً أو موضوعاً تقنياً أو برمجياً مشوقاً للمجتمع في سطر واحد لتنفيذه في الشات.`;
+            const randomPrompt = `اطرح سؤالاً تقنياً أو برمجياً باختصار شديد في سطر واحد.`;
             const answer = await sendQueryToDify(randomPrompt, 'cron_12h_system');
             if (!answer.startsWith('يبدو أن الاتصال') && !answer.startsWith('يبدو أن الضغط')) {
                 await (channel as TextChannel).send(answer);
@@ -634,16 +633,16 @@ client.on('messageCreate', async message => {
 
             let chatHistoryContext = '';
             try {
-                const fetchedMessages = await message.channel.messages.fetch({ limit: 6 });
-                const last5 = Array.from(fetchedMessages.values())
+                const fetchedMessages = await message.channel.messages.fetch({ limit: 4 });
+                const last3 = Array.from(fetchedMessages.values())
                     .filter(m => m.id !== message.id)
                     .reverse()
-                    .slice(-5)
+                    .slice(-3)
                     .map(m => `${m.author.username}: ${m.content}`)
                     .join('\n');
 
-                if (last5) {
-                    chatHistoryContext = `[آخر 5 رسائل في الشات]:\n${last5}\n---`;
+                if (last3) {
+                    chatHistoryContext = `[السياق السابق]:\n${last3}\n---`;
                 }
             } catch (err) {
                 console.error('فشل جلب الرسائل:', err);
@@ -667,7 +666,7 @@ client.on('messageCreate', async message => {
                 const sticker = message.stickers.first();
                 if (sticker) {
                     mediaUrl = sticker.url;
-                    mediaNotice = `[مرفق استيكر: ${sticker.name}]`;
+                    mediaNotice = `[استيكر: ${sticker.name}]`;
                 }
             }
 
@@ -675,7 +674,7 @@ client.on('messageCreate', async message => {
                 const attachment = message.attachments.first();
                 if (attachment) {
                     mediaUrl = attachment.url;
-                    mediaNotice = `[مرفق صورة]`;
+                    mediaNotice = `[صورة مرفقة]`;
                 }
             }
 
@@ -684,7 +683,7 @@ client.on('messageCreate', async message => {
                 const match = message.content.match(tenorRegex);
                 if (match) {
                     mediaUrl = match[0];
-                    mediaNotice = `[مرفق GIF]`;
+                    mediaNotice = `[GIF]`;
                 }
             }
 
@@ -694,7 +693,7 @@ client.on('messageCreate', async message => {
                 cleanText = cleanText.replace(mentionRegex, '').trim();
             }
 
-            const promptToSend = `${chatHistoryContext}\nالكاتب الحالي: ${message.author.username}\nكلام الكاتب: "${cleanText}"\n${mediaNotice}`;
+            const promptToSend = `${chatHistoryContext}\nالكاتب: ${message.author.username}\nالسؤال: "${cleanText}"\n${mediaNotice}`;
 
             let highDemandMessage: any = null;
 
@@ -703,7 +702,7 @@ client.on('messageCreate', async message => {
                 message.author.id, 
                 mediaUrl, 
                 async () => {
-                    highDemandMessage = await message.reply('⏳ **انتظر، يوجد ضغط على السيرفرات حالياً وجاري معالجة إجابتك...**');
+                    highDemandMessage = await message.reply('⏳ **انتظر، يوجد ضغط...**');
                 }
             );
 
