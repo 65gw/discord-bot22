@@ -94,6 +94,26 @@ const BOT_PROMPT = `أنت بوت آلي متفاعل في سيرفر ديسكو
 - إذا كانت الرسالة مجرد سوالف، سلام، أو كلام عام: يجب أن يكون الرد مقتضباً وقصيراً جداً (من سطر إلى سطرين كحد أقصى) وبدون إطالة أو رسميات.`;
 
 // ==========================================
+// دالة تقسيم النصوص الطويلة لتفادي حد الـ 2000 حرف
+// ==========================================
+function splitMessage(text: string, maxLength = 1900): string[] {
+    if (text.length <= maxLength) return [text];
+    const chunks: string[] = [];
+    let cur = text;
+    while (cur.length > 0) {
+        if (cur.length <= maxLength) {
+            chunks.push(cur);
+            break;
+        }
+        let ins = cur.lastIndexOf('\n', maxLength);
+        if (ins === -1) ins = maxLength;
+        chunks.push(cur.slice(0, ins));
+        cur = cur.slice(ins).trimStart();
+    }
+    return chunks;
+}
+
+// ==========================================
 // 3. سيرفر الويب لخدمة Render
 // ==========================================
 const PORT = process.env.PORT || 3000;
@@ -144,7 +164,16 @@ async function sendQueryToDify(
     const maxCycles = 3;
     let notifiedHighDemand = false;
 
-    const files = imageUrl ? [{ type: 'image', transfer_method: 'remote_url', url: imageUrl }] : [];
+    // التحقق من صحة امتداد رابط الصورة قبل الإرسال
+    const isValidImageUrl = imageUrl && (
+        imageUrl.endsWith('.png') || 
+        imageUrl.endsWith('.jpg') || 
+        imageUrl.endsWith('.jpeg') || 
+        imageUrl.endsWith('.webp') ||
+        imageUrl.endsWith('.gif')
+    );
+
+    const files = isValidImageUrl ? [{ type: 'image', transfer_method: 'remote_url', url: imageUrl }] : [];
     const finalPrompt = `${BOT_PROMPT}\n\n${prompt}`;
 
     for (let cycle = 0; cycle < maxCycles; cycle++) {
@@ -303,7 +332,7 @@ async function playTextToSpeech(text: string) {
 }
 
 // ==========================================
-// 8. وظيفة التنزيل عبر أوامر Slash Command
+// 8. وظيفة التنزيل عبر أوامر Slash Command (اصلاح التنفيذ)
 // ==========================================
 async function handleMediaDownloadSlash(interaction: any, url: string) {
     await interaction.deferReply();
@@ -319,13 +348,14 @@ async function handleMediaDownloadSlash(interaction: any, url: string) {
 
         const outputTemplate = path.join(downloadsDir, `${uniquePrefix}.%(ext)s`);
 
-        await ytDlp(url, {
-            output: outputTemplate,
-            format: 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best',
-            noWarnings: true,
-            noCallHome: true,
-            maxFilesize: '25M'
-        });
+        // تعديل طريقة استدعاء yt-dlp لضمان التوافقية
+        await ytDlp.exec([
+            url,
+            '-o', outputTemplate,
+            '-f', 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best',
+            '--no-warnings',
+            '--max-filesize', '25M'
+        ]);
 
         const files = fs.readdirSync(downloadsDir);
         const foundFile = files.find(f => f.startsWith(uniquePrefix));
@@ -424,9 +454,11 @@ client.on('interactionCreate', async interaction => {
             }
         );
 
-        await interaction.editReply({
-            content: `💬 **سؤال من ${interaction.user}:** ${question}\n\n🗣️ **الرد:**\n${answer}`
-        });
+        const chunks = splitMessage(`💬 **سؤال من ${interaction.user}:** ${question}\n\n🗣️ **الرد:**\n${answer}`);
+        await interaction.editReply({ content: chunks[0] });
+        for (let i = 1; i < chunks.length; i++) {
+            await interaction.followUp({ content: chunks[i] });
+        }
 
         await playTextToSpeech(answer);
     }
@@ -616,7 +648,10 @@ async function triggerRandomTopic(botClient: Client) {
             const randomPrompt = `اطرح سؤالاً تقنياً أو برمجياً باختصار شديد في سطر واحد لتحديث الشات.`;
             const answer = await sendQueryToDify(randomPrompt, 'cron_12h_system');
             if (!answer.startsWith('يبدو أن الاتصال') && !answer.startsWith('يبدو أن الضغط')) {
-                await (channel as TextChannel).send(answer);
+                const chunks = splitMessage(answer);
+                for (const chunk of chunks) {
+                    await (channel as TextChannel).send(chunk);
+                }
                 if (isVoiceResponseEnabled) playTextToSpeech(answer);
             }
         }
@@ -697,8 +732,7 @@ client.on('messageCreate', async message => {
                 const mediaLinkRegex = /(https?:\/\/(?:www\.)?(?:tenor\.com|giphy\.com|media\.giphy\.com)\/\S+)/i;
                 const match = message.content.match(mediaLinkRegex);
                 if (match) {
-                    mediaUrl = match[0];
-                    mediaTypeNotice = `[المرفق: رابط ميديا GIF / Meme]`;
+                    mediaTypeNotice = `[المرفق: رابط ميديا GIF / Meme: ${match[0]}]`;
                 }
             }
 
@@ -721,10 +755,19 @@ client.on('messageCreate', async message => {
                 }
             );
 
+            // تقسيم الرد إذا تجاوز حد 2000 حرف
+            const chunks = splitMessage(answer);
+
             if (highDemandMessage) {
-                await highDemandMessage.edit(answer);
+                await highDemandMessage.edit(chunks[0]);
+                for (let i = 1; i < chunks.length; i++) {
+                    await message.channel.send(chunks[i]);
+                }
             } else {
-                await message.reply(answer);
+                await message.reply(chunks[0]);
+                for (let i = 1; i < chunks.length; i++) {
+                    await message.channel.send(chunks[i]);
+                }
             }
 
             if (isVoiceResponseEnabled) {
