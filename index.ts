@@ -98,6 +98,7 @@ const client = new Client({
         GatewayIntentBits.MessageContent,
         GatewayIntentBits.GuildMembers,
         GatewayIntentBits.GuildVoiceStates,
+        GatewayIntentBits.DirectMessages,
     ],
 });
 
@@ -369,10 +370,36 @@ client.on('interactionCreate', async interaction => {
     }
 });
 
+// ==========================================
+// مراقبة دخول الروم الصوتي والتنبيه بالخاص
+// ==========================================
 client.on('voiceStateUpdate', (oldState, newState) => {
+    // 1. إعادة ربط البوت إذا خرج أو نقل
     if (oldState.member?.id === client.user?.id) {
         if (newState.channelId !== TARGET_VOICE_CHANNEL_ID) {
             setTimeout(() => ensureVoiceConnection(), 1500);
+        }
+    }
+
+    // 2. إرسال إشعار بالخاص عند دخول شخص الروم الصوتي المحدد
+    if (newState.channelId === TARGET_VOICE_CHANNEL_ID && oldState.channelId !== TARGET_VOICE_CHANNEL_ID) {
+        if (newState.member && !newState.member.user.bot) {
+            const vipUserId = process.env.VIP_USER_ID;
+
+            if (vipUserId) {
+                client.users.fetch(vipUserId).then(targetUser => {
+                    const joinedUser = newState.member!.user;
+
+                    const alertMessage = 
+                        `🎤 **تنبيه دخول الروم الصوتي!**\n\n` +
+                        `👤 **الشخص:** <@${joinedUser.id}> (${joinedUser.username})\n` +
+                        `🆔 **الأيدي (اضغط للنسخ):** \`${joinedUser.id}\``;
+
+                    targetUser.send(alertMessage).catch(err => {
+                        console.error('تعذر إرسال الرسالة الخاصة (تأكد أن الخاص مفتوح):', err.message);
+                    });
+                }).catch(err => console.error('تعذر الوصول للحساب عبر VIP_USER_ID:', err.message));
+            }
         }
     }
 });
