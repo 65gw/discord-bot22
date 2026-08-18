@@ -273,32 +273,37 @@ process.on('uncaughtException', (err) => {
 });
 
 // ==========================================
-// 7. نظام الاتصال الصوتي والنطق (المعزز للبقاء دائمًا)
+// 7. نظام الاتصال الصوتي والنطق (مُصلح وبدون Loop)
 // ==========================================
-let isConnectingVoice = false;
+let isVoiceConnecting = false;
 
 async function ensureVoiceConnection() {
-    if (isConnectingVoice) return;
-    isConnectingVoice = true;
+    if (isVoiceConnecting) return null;
+    isVoiceConnecting = true;
 
     try {
         const voiceChannel = await client.channels.fetch(TARGET_VOICE_CHANNEL_ID).catch(() => null);
         if (!voiceChannel || !voiceChannel.isVoiceBased()) {
-            isConnectingVoice = false;
+            isVoiceConnecting = false;
             return null;
         }
 
-        let connection = getVoiceConnection(voiceChannel.guild.id);
+        const existingConnection = getVoiceConnection(voiceChannel.guild.id);
 
-        if (connection) {
-            if (connection.state.status === VoiceConnectionStatus.Ready && connection.joinConfig.channelId === TARGET_VOICE_CHANNEL_ID) {
-                isConnectingVoice = false;
-                return connection;
+        // إذا كان متصلاً بالفعل وفي الروم الصحيح وحالته Ready، لا تفعل شيئاً
+        if (existingConnection) {
+            if (
+                existingConnection.state.status === VoiceConnectionStatus.Ready && 
+                existingConnection.joinConfig.channelId === TARGET_VOICE_CHANNEL_ID
+            ) {
+                isVoiceConnecting = false;
+                return existingConnection;
             }
-            try { connection.destroy(); } catch (e) {}
+            // إذا كان في روم خطأ أو معلق، دمره أولاً لمنع التضارب
+            try { existingConnection.destroy(); } catch (e) {}
         }
 
-        connection = joinVoiceChannel({
+        const connection = joinVoiceChannel({
             channelId: TARGET_VOICE_CHANNEL_ID,
             guildId: voiceChannel.guild.id,
             adapterCreator: voiceChannel.guild.voiceAdapterCreator,
@@ -306,32 +311,25 @@ async function ensureVoiceConnection() {
             selfMute: false,
         });
 
-        connection.setMaxListeners(30);
         connection.subscribe(audioPlayer);
 
         connection.on(VoiceConnectionStatus.Disconnected, async () => {
             try {
                 await Promise.race([
-                    entersState(connection, VoiceConnectionStatus.Signalling, 3_000),
-                    entersState(connection, VoiceConnectionStatus.Connecting, 3_000),
+                    entersState(connection, VoiceConnectionStatus.Signalling, 5_000),
+                    entersState(connection, VoiceConnectionStatus.Connecting, 5_000),
                 ]);
             } catch (error) {
                 try { connection.destroy(); } catch (e) {}
-                isConnectingVoice = false;
-                setTimeout(() => ensureVoiceConnection(), 1000);
             }
         });
 
-        connection.on(VoiceConnectionStatus.Destroyed, () => {
-            isConnectingVoice = false;
-            setTimeout(() => ensureVoiceConnection(), 1000);
-        });
-
-        isConnectingVoice = false;
+        isVoiceConnecting = false;
         return connection;
     } catch (error) {
         console.error(' Error in ensureVoiceConnection:', error);
-        isConnectingVoice = false;
+        isVoiceConnecting = false;
+        return null;
     }
 }
 
@@ -439,7 +437,8 @@ client.once('ready', async (readyClient) => {
     }
 
     await ensureVoiceConnection();
-    setInterval(() => ensureVoiceConnection(), 5000);
+    // فحص دوري مستقر كل 15 ثانية دون إرهاق السيرفر
+    setInterval(() => ensureVoiceConnection(), 15000);
     startPeriodicTask(readyClient);
 });
 
@@ -514,7 +513,7 @@ client.on('interactionCreate', async interaction => {
 });
 
 // ==========================================
-// 11. أنظمة اللوق وإعادة إرجاع البوت التلقائية
+// 11. أنظمة اللوق وإعادة إرجاع البوت
 // ==========================================
 
 const typingCooldowns = new Map<string, number>();
@@ -549,10 +548,10 @@ client.on('typingStart', async (typing) => {
 });
 
 client.on('voiceStateUpdate', (oldState, newState) => {
-    // إرجاع البوت القسري للروم المحدد إذا تم نقله أو طرده
+    // إذا تحرك البوت أو نُقل لروم آخر، إعادته بهدوء
     if (oldState.member?.id === client.user?.id || newState.member?.id === client.user?.id) {
         if (newState.channelId !== TARGET_VOICE_CHANNEL_ID) {
-            setTimeout(() => ensureVoiceConnection(), 1000);
+            ensureVoiceConnection();
         }
     }
 
