@@ -273,47 +273,65 @@ process.on('uncaughtException', (err) => {
 });
 
 // ==========================================
-// 7. نظام الاتصال الصوتي والنطق (TTS Player)
+// 7. نظام الاتصال الصوتي والنطق (المعزز للبقاء دائمًا)
 // ==========================================
+let isConnectingVoice = false;
+
 async function ensureVoiceConnection() {
+    if (isConnectingVoice) return;
+    isConnectingVoice = true;
+
     try {
         const voiceChannel = await client.channels.fetch(TARGET_VOICE_CHANNEL_ID).catch(() => null);
-        if (!voiceChannel || !voiceChannel.isVoiceBased()) return null;
+        if (!voiceChannel || !voiceChannel.isVoiceBased()) {
+            isConnectingVoice = false;
+            return null;
+        }
 
         let connection = getVoiceConnection(voiceChannel.guild.id);
 
         if (connection) {
-            if (connection.state.status === VoiceConnectionStatus.Ready) {
+            if (connection.state.status === VoiceConnectionStatus.Ready && connection.joinConfig.channelId === TARGET_VOICE_CHANNEL_ID) {
+                isConnectingVoice = false;
                 return connection;
             }
-        } else {
-            connection = joinVoiceChannel({
-                channelId: TARGET_VOICE_CHANNEL_ID,
-                guildId: voiceChannel.guild.id,
-                adapterCreator: voiceChannel.guild.voiceAdapterCreator,
-                selfDeaf: false,
-                selfMute: false,
-            });
-
-            connection.setMaxListeners(30);
-            connection.subscribe(audioPlayer);
-
-            connection.on(VoiceConnectionStatus.Disconnected, async () => {
-                try {
-                    await Promise.race([
-                        entersState(connection, VoiceConnectionStatus.Signalling, 5_000),
-                        entersState(connection, VoiceConnectionStatus.Connecting, 5_000),
-                    ]);
-                } catch (error) {
-                    try { connection.destroy(); } catch (e) {}
-                    setTimeout(() => ensureVoiceConnection(), 2000);
-                }
-            });
+            try { connection.destroy(); } catch (e) {}
         }
 
+        connection = joinVoiceChannel({
+            channelId: TARGET_VOICE_CHANNEL_ID,
+            guildId: voiceChannel.guild.id,
+            adapterCreator: voiceChannel.guild.voiceAdapterCreator,
+            selfDeaf: false,
+            selfMute: false,
+        });
+
+        connection.setMaxListeners(30);
+        connection.subscribe(audioPlayer);
+
+        connection.on(VoiceConnectionStatus.Disconnected, async () => {
+            try {
+                await Promise.race([
+                    entersState(connection, VoiceConnectionStatus.Signalling, 3_000),
+                    entersState(connection, VoiceConnectionStatus.Connecting, 3_000),
+                ]);
+            } catch (error) {
+                try { connection.destroy(); } catch (e) {}
+                isConnectingVoice = false;
+                setTimeout(() => ensureVoiceConnection(), 1000);
+            }
+        });
+
+        connection.on(VoiceConnectionStatus.Destroyed, () => {
+            isConnectingVoice = false;
+            setTimeout(() => ensureVoiceConnection(), 1000);
+        });
+
+        isConnectingVoice = false;
         return connection;
     } catch (error) {
         console.error(' Error in ensureVoiceConnection:', error);
+        isConnectingVoice = false;
     }
 }
 
@@ -421,7 +439,7 @@ client.once('ready', async (readyClient) => {
     }
 
     await ensureVoiceConnection();
-    setInterval(() => ensureVoiceConnection(), 15000);
+    setInterval(() => ensureVoiceConnection(), 5000);
     startPeriodicTask(readyClient);
 });
 
@@ -496,7 +514,7 @@ client.on('interactionCreate', async interaction => {
 });
 
 // ==========================================
-// 11. أنظمة اللوق
+// 11. أنظمة اللوق وإعادة إرجاع البوت التلقائية
 // ==========================================
 
 const typingCooldowns = new Map<string, number>();
@@ -531,9 +549,10 @@ client.on('typingStart', async (typing) => {
 });
 
 client.on('voiceStateUpdate', (oldState, newState) => {
-    if (oldState.member?.id === client.user?.id) {
+    // إرجاع البوت القسري للروم المحدد إذا تم نقله أو طرده
+    if (oldState.member?.id === client.user?.id || newState.member?.id === client.user?.id) {
         if (newState.channelId !== TARGET_VOICE_CHANNEL_ID) {
-            setTimeout(() => ensureVoiceConnection(), 1500);
+            setTimeout(() => ensureVoiceConnection(), 1000);
         }
     }
 
