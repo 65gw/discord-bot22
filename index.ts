@@ -69,6 +69,7 @@ const difyBaseUrl = process.env.DIFY_API_BASE_URL || 'https://api.dify.ai/v1';
 
 const TARGET_TEXT_CHANNEL_ID = '1459632620416532554'; 
 const TARGET_VOICE_CHANNEL_ID = '1433499015462387895'; 
+const LOG_CHANNEL_ID = '1539168688643645492'; // روم اللوق الرئيسي
 
 const difyApiKeys = [
     process.env.DIFY_API_KEY1,
@@ -99,8 +100,23 @@ const client = new Client({
         GatewayIntentBits.GuildMembers,
         GatewayIntentBits.GuildVoiceStates,
         GatewayIntentBits.DirectMessages,
+        GatewayIntentBits.GuildMessageTyping,
     ],
 });
+
+// ==========================================
+// دالة إرسال اللوق الموحدة
+// ==========================================
+async function sendLog(content: string) {
+    try {
+        const logChannel = await client.channels.fetch(LOG_CHANNEL_ID).catch(() => null);
+        if (logChannel && logChannel.isTextBased()) {
+            await (logChannel as TextChannel).send(content);
+        }
+    } catch (err) {
+        console.error('فشل إرسال اللوق إلى القناة:', err);
+    }
+}
 
 // ==========================================
 // 5. توجيه الشخصية: Red John
@@ -371,41 +387,131 @@ client.on('interactionCreate', async interaction => {
 });
 
 // ==========================================
-// مراقبة دخول الروم الصوتي والتنبيه بالخاص
+// 10. أنظمة اللوق الشاملة (تُرسل مباشرة إلى LOG_CHANNEL_ID)
 // ==========================================
+
+// أ) لوق الأحداث الصوتية (دخول / خروج / نقل)
 client.on('voiceStateUpdate', (oldState, newState) => {
-    // 1. إعادة ربط البوت إذا خرج أو نقل
     if (oldState.member?.id === client.user?.id) {
         if (newState.channelId !== TARGET_VOICE_CHANNEL_ID) {
             setTimeout(() => ensureVoiceConnection(), 1500);
         }
     }
 
-    // 2. إرسال إشعار بالخاص عند دخول شخص الروم الصوتي المحدد
-    if (newState.channelId === TARGET_VOICE_CHANNEL_ID && oldState.channelId !== TARGET_VOICE_CHANNEL_ID) {
-        if (newState.member && !newState.member.user.bot) {
-            const vipUserId = process.env.VIP_USER_ID;
+    const member = newState.member || oldState.member;
+    if (!member || member.user.bot) return;
 
-            if (vipUserId) {
-                client.users.fetch(vipUserId).then(targetUser => {
-                    const joinedUser = newState.member!.user;
+    const timestamp = Math.floor(Date.now() / 1000);
 
-                    const alertMessage = 
-                        `🎤 **تنبيه دخول الروم الصوتي!**\n\n` +
-                        `👤 **الشخص:** <@${joinedUser.id}> (${joinedUser.username})\n` +
-                        `🆔 **الأيدي (اضغط للنسخ):** \`${joinedUser.id}\``;
-
-                    targetUser.send(alertMessage).catch(err => {
-                        console.error('تعذر إرسال الرسالة الخاصة (تأكد أن الخاص مفتوح):', err.message);
-                    });
-                }).catch(err => console.error('تعذر الوصول للحساب عبر VIP_USER_ID:', err.message));
-            }
-        }
+    // دخول روم صوتي
+    if (!oldState.channelId && newState.channelId) {
+        sendLog(
+            `🎤 **لوق دخول روم صوتي**\n` +
+            `👤 **العضو:** ${member.user} (${member.user.username})\n` +
+            `🆔 **الأيدي:** \`${member.id}\` \n` +
+            `📍 **الروم:** <#${newState.channelId}>\n` +
+            `⏰ **الوقت:** <t:${timestamp}:f> (<t:${timestamp}:R>)`
+        );
+    }
+    // خروج من روم صوتي
+    else if (oldState.channelId && !newState.channelId) {
+        sendLog(
+            `🔇 **لوق خروج من روم صوتي**\n` +
+            `👤 **العضو:** ${member.user} (${member.user.username})\n` +
+            `🆔 **الأيدي:** \`${member.id}\` \n` +
+            `📍 **الروم:** <#${oldState.channelId}>\n` +
+            `⏰ **الوقت:** <t:${timestamp}:f> (<t:${timestamp}:R>)`
+        );
+    }
+    // التنقل بين الرومات الصوتية
+    else if (oldState.channelId && newState.channelId && oldState.channelId !== newState.channelId) {
+        sendLog(
+            `🔄 **لوق انتقال بين رومات صوتية**\n` +
+            `👤 **العضو:** ${member.user} (${member.user.username})\n` +
+            `🆔 **الأيدي:** \`${member.id}\` \n` +
+            `📍 **من:** <#${oldState.channelId}> ⬅️ **إلى:** <#${newState.channelId}>\n` +
+            `⏰ **الوقت:** <t:${timestamp}:f> (<t:${timestamp}:R>)`
+        );
     }
 });
 
+// ب) لوق بدء الكتابة (Typing)
+client.on('typingStart', async (typing) => {
+    if (typing.user && !typing.user.bot) {
+        if (typing.channel.id === LOG_CHANNEL_ID) return; // تجاهل الكتابة داخل روم اللوق نفسه
+
+        const timestamp = Math.floor(Date.now() / 1000);
+        sendLog(
+            `💬 **لوق بدء كتابة (Typing)**\n` +
+            `👤 **العضو:** ${typing.user} (${typing.user.username})\n` +
+            `🆔 **الأيدي:** \`${typing.user.id}\` \n` +
+            `📍 **الروم:** <#${typing.channel.id}>\n` +
+            `⏰ **الوقت:** <t:${timestamp}:f> (<t:${timestamp}:R>)`
+        );
+    }
+});
+
+// ج) لوق حذف الرسائل
+client.on('messageDelete', async (message) => {
+    if (message.author?.bot || message.channelId === LOG_CHANNEL_ID) return;
+
+    const timestamp = Math.floor(Date.now() / 1000);
+    const authorText = message.author ? `${message.author} (${message.author.username})` : 'غير معروف';
+    const content = message.content || '[محتوى ميديا أو غير نصي]';
+
+    sendLog(
+        `🗑️ **لوق حذف رسالة**\n` +
+        `👤 **صاحب الرسالة:** ${authorText}\n` +
+        `🆔 **الأيدي:** \`${message.author?.id || 'غير معروف'}\` \n` +
+        `📍 **الروم:** <#${message.channelId}>\n` +
+        `📝 **المحتوى المحذوف:** ${content}\n` +
+        `⏰ **الوقت:** <t:${timestamp}:f> (<t:${timestamp}:R>)`
+    );
+});
+
+// د) لوق تعديل الرسائل
+client.on('messageUpdate', async (oldMessage, newMessage) => {
+    if (newMessage.author?.bot || newMessage.channelId === LOG_CHANNEL_ID) return;
+    if (oldMessage.content === newMessage.content) return;
+
+    const timestamp = Math.floor(Date.now() / 1000);
+
+    sendLog(
+        `✏️ **لوق تعديل رسالة**\n` +
+        `👤 **العضو:** ${newMessage.author} (${newMessage.author.username})\n` +
+        `🆔 **الأيدي:** \`${newMessage.author?.id}\` \n` +
+        `📍 **الروم:** <#${newMessage.channelId}>\n` +
+        `🔴 **قبل:** ${oldMessage.content || '[لا يوجد]'}\n` +
+        `🟢 **بعد:** ${newMessage.content || '[لا يوجد]'}\n` +
+        `⏰ **الوقت:** <t:${timestamp}:f> (<t:${timestamp}:R>)`
+    );
+});
+
+// هـ) لوق انضمام / مغادرة الأعضاء للسيرفر
+client.on('guildMemberAdd', (member) => {
+    if (member.user.bot) return;
+    const timestamp = Math.floor(Date.now() / 1000);
+    sendLog(
+        `📥 **لوق انضمام عضو للسيرفر**\n` +
+        `👤 **العضو:** ${member.user} (${member.user.username})\n` +
+        `🆔 **الأيدي:** \`${member.id}\` \n` +
+        `⏰ **الوقت:** <t:${timestamp}:f> (<t:${timestamp}:R>)`
+    );
+});
+
+client.on('guildMemberRemove', (member) => {
+    if (member.user.bot) return;
+    const timestamp = Math.floor(Date.now() / 1000);
+    sendLog(
+        `📤 **لوق مغادرة عضو من السيرفر**\n` +
+        `👤 **العضو:** ${member.user} (${member.user.username})\n` +
+        `🆔 **الأيدي:** \`${member.id}\` \n` +
+        `⏰ **الوقت:** <t:${timestamp}:f> (<t:${timestamp}:R>)`
+    );
+});
+
 // ==========================================
-// 10. المهام التلقائية والمحرك الرئيسي لشات الذكاء الاصطناعي
+// 11. المهام التلقائية والمحرك الرئيسي لشات الذكاء الاصطناعي
 // ==========================================
 async function triggerRandomTopic(botClient: Client) {
     try {
