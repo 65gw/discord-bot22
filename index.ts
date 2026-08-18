@@ -6,7 +6,8 @@ import {
     Routes, 
     SlashCommandBuilder, 
     TextChannel,
-    AttachmentBuilder
+    AttachmentBuilder,
+    EmbedBuilder
 } from 'discord.js';
 import { 
     joinVoiceChannel, 
@@ -105,13 +106,13 @@ const client = new Client({
 });
 
 // ==========================================
-// دالة إرسال اللوق الموحدة
+// دالة إرسال اللوق المنظم (Embed)
 // ==========================================
-async function sendLog(content: string) {
+async function sendLogEmbed(embed: EmbedBuilder) {
     try {
         const logChannel = await client.channels.fetch(LOG_CHANNEL_ID).catch(() => null);
         if (logChannel && logChannel.isTextBased()) {
-            await (logChannel as TextChannel).send(content);
+            await (logChannel as TextChannel).send({ embeds: [embed] });
         }
     } catch (err) {
         console.error('فشل إرسال اللوق إلى القناة:', err);
@@ -387,10 +388,32 @@ client.on('interactionCreate', async interaction => {
 });
 
 // ==========================================
-// 10. أنظمة اللوق الشاملة (تُرسل مباشرة إلى LOG_CHANNEL_ID)
+// 10. أنظمة اللوق الشاملة بتنسيق Embed المنظم
 // ==========================================
 
-// أ) لوق الأحداث الصوتية (دخول / خروج / نقل)
+// أ) لوق بدء الكتابة (Typing)
+client.on('typingStart', async (typing) => {
+    if (typing.user && !typing.user.bot) {
+        if (typing.channel.id === LOG_CHANNEL_ID) return;
+
+        const embed = new EmbedBuilder()
+            .setColor('#3498db') // أزرق
+            .setAuthor({ 
+                name: `بدأ الكتابة - ${typing.user.tag}`, 
+                iconURL: typing.user.displayAvatarURL() 
+            })
+            .addFields(
+                { name: 'العضو', value: `${typing.user}`, inline: true },
+                { name: 'القناة', value: `${typing.channel}`, inline: true },
+                { name: 'الأيدي', value: `\`${typing.user.id}\``, inline: true }
+            )
+            .setTimestamp();
+
+        sendLogEmbed(embed);
+    }
+});
+
+// ب) لوق الأحداث الصوتية (دخول / خروج / نقل)
 client.on('voiceStateUpdate', (oldState, newState) => {
     if (oldState.member?.id === client.user?.id) {
         if (newState.channelId !== TARGET_VOICE_CHANNEL_ID) {
@@ -401,53 +424,44 @@ client.on('voiceStateUpdate', (oldState, newState) => {
     const member = newState.member || oldState.member;
     if (!member || member.user.bot) return;
 
-    const timestamp = Math.floor(Date.now() / 1000);
-
     // دخول روم صوتي
     if (!oldState.channelId && newState.channelId) {
-        sendLog(
-            `🎤 **لوق دخول روم صوتي**\n` +
-            `👤 **العضو:** ${member.user} (${member.user.username})\n` +
-            `🆔 **الأيدي:** \`${member.id}\` \n` +
-            `📍 **الروم:** <#${newState.channelId}>\n` +
-            `⏰ **الوقت:** <t:${timestamp}:f> (<t:${timestamp}:R>)`
-        );
+        const embed = new EmbedBuilder()
+            .setColor('#57f287') // أخضر
+            .setAuthor({ name: `دخول روم صوتي - ${member.user.tag}`, iconURL: member.user.displayAvatarURL() })
+            .addFields(
+                { name: 'العضو', value: `${member.user}`, inline: true },
+                { name: 'الروم الصوتي', value: `<#${newState.channelId}>`, inline: true },
+                { name: 'الأيدي', value: `\`${member.id}\``, inline: true }
+            )
+            .setTimestamp();
+        sendLogEmbed(embed);
     }
     // خروج من روم صوتي
     else if (oldState.channelId && !newState.channelId) {
-        sendLog(
-            `🔇 **لوق خروج من روم صوتي**\n` +
-            `👤 **العضو:** ${member.user} (${member.user.username})\n` +
-            `🆔 **الأيدي:** \`${member.id}\` \n` +
-            `📍 **الروم:** <#${oldState.channelId}>\n` +
-            `⏰ **الوقت:** <t:${timestamp}:f> (<t:${timestamp}:R>)`
-        );
+        const embed = new EmbedBuilder()
+            .setColor('#ed4245') // أحمر
+            .setAuthor({ name: `خروج من روم صوتي - ${member.user.tag}`, iconURL: member.user.displayAvatarURL() })
+            .addFields(
+                { name: 'العضو', value: `${member.user}`, inline: true },
+                { name: 'الروم الصوتي', value: `<#${oldState.channelId}>`, inline: true },
+                { name: 'الأيدي', value: `\`${member.id}\``, inline: true }
+            )
+            .setTimestamp();
+        sendLogEmbed(embed);
     }
     // التنقل بين الرومات الصوتية
     else if (oldState.channelId && newState.channelId && oldState.channelId !== newState.channelId) {
-        sendLog(
-            `🔄 **لوق انتقال بين رومات صوتية**\n` +
-            `👤 **العضو:** ${member.user} (${member.user.username})\n` +
-            `🆔 **الأيدي:** \`${member.id}\` \n` +
-            `📍 **من:** <#${oldState.channelId}> ⬅️ **إلى:** <#${newState.channelId}>\n` +
-            `⏰ **الوقت:** <t:${timestamp}:f> (<t:${timestamp}:R>)`
-        );
-    }
-});
-
-// ب) لوق بدء الكتابة (Typing)
-client.on('typingStart', async (typing) => {
-    if (typing.user && !typing.user.bot) {
-        if (typing.channel.id === LOG_CHANNEL_ID) return; // تجاهل الكتابة داخل روم اللوق نفسه
-
-        const timestamp = Math.floor(Date.now() / 1000);
-        sendLog(
-            `💬 **لوق بدء كتابة (Typing)**\n` +
-            `👤 **العضو:** ${typing.user} (${typing.user.username})\n` +
-            `🆔 **الأيدي:** \`${typing.user.id}\` \n` +
-            `📍 **الروم:** <#${typing.channel.id}>\n` +
-            `⏰ **الوقت:** <t:${timestamp}:f> (<t:${timestamp}:R>)`
-        );
+        const embed = new EmbedBuilder()
+            .setColor('#fee75c') // أصفر
+            .setAuthor({ name: `انتقال بين رومات صوتية - ${member.user.tag}`, iconURL: member.user.displayAvatarURL() })
+            .addFields(
+                { name: 'العضو', value: `${member.user}`, inline: true },
+                { name: 'من', value: `<#${oldState.channelId}>`, inline: true },
+                { name: 'إلى', value: `<#${newState.channelId}>`, inline: true }
+            )
+            .setTimestamp();
+        sendLogEmbed(embed);
     }
 });
 
@@ -455,18 +469,23 @@ client.on('typingStart', async (typing) => {
 client.on('messageDelete', async (message) => {
     if (message.author?.bot || message.channelId === LOG_CHANNEL_ID) return;
 
-    const timestamp = Math.floor(Date.now() / 1000);
-    const authorText = message.author ? `${message.author} (${message.author.username})` : 'غير معروف';
     const content = message.content || '[محتوى ميديا أو غير نصي]';
 
-    sendLog(
-        `🗑️ **لوق حذف رسالة**\n` +
-        `👤 **صاحب الرسالة:** ${authorText}\n` +
-        `🆔 **الأيدي:** \`${message.author?.id || 'غير معروف'}\` \n` +
-        `📍 **الروم:** <#${message.channelId}>\n` +
-        `📝 **المحتوى المحذوف:** ${content}\n` +
-        `⏰ **الوقت:** <t:${timestamp}:f> (<t:${timestamp}:R>)`
-    );
+    const embed = new EmbedBuilder()
+        .setColor('#ed4245') // أحمر
+        .setAuthor({ 
+            name: `حذف رسالة - ${message.author?.tag || 'غير معروف'}`, 
+            iconURL: message.author?.displayAvatarURL() 
+        })
+        .addFields(
+            { name: 'صاحب الرسالة', value: `${message.author || 'غير معروف'}`, inline: true },
+            { name: 'القناة', value: `<#${message.channelId}>`, inline: true },
+            { name: 'الأيدي', value: `\`${message.author?.id || 'غير معروف'}\``, inline: true },
+            { name: 'المحتوى', value: content.length > 1024 ? content.slice(0, 1021) + '...' : content, inline: false }
+        )
+        .setTimestamp();
+
+    sendLogEmbed(embed);
 });
 
 // د) لوق تعديل الرسائل
@@ -474,40 +493,56 @@ client.on('messageUpdate', async (oldMessage, newMessage) => {
     if (newMessage.author?.bot || newMessage.channelId === LOG_CHANNEL_ID) return;
     if (oldMessage.content === newMessage.content) return;
 
-    const timestamp = Math.floor(Date.now() / 1000);
+    const oldContent = oldMessage.content || '[لا يوجد]';
+    const newContent = newMessage.content || '[لا يوجد]';
 
-    sendLog(
-        `✏️ **لوق تعديل رسالة**\n` +
-        `👤 **العضو:** ${newMessage.author} (${newMessage.author.username})\n` +
-        `🆔 **الأيدي:** \`${newMessage.author?.id}\` \n` +
-        `📍 **الروم:** <#${newMessage.channelId}>\n` +
-        `🔴 **قبل:** ${oldMessage.content || '[لا يوجد]'}\n` +
-        `🟢 **بعد:** ${newMessage.content || '[لا يوجد]'}\n` +
-        `⏰ **الوقت:** <t:${timestamp}:f> (<t:${timestamp}:R>)`
-    );
+    const embed = new EmbedBuilder()
+        .setColor('#fee75c') // أصفر
+        .setAuthor({ 
+            name: `تعديل رسالة - ${newMessage.author?.tag}`, 
+            iconURL: newMessage.author?.displayAvatarURL() 
+        })
+        .addFields(
+            { name: 'العضو', value: `${newMessage.author}`, inline: true },
+            { name: 'القناة', value: `<#${newMessage.channelId}>`, inline: true },
+            { name: 'الأيدي', value: `\`${newMessage.author?.id}\``, inline: true },
+            { name: 'قبل التعديل', value: oldContent.length > 1024 ? oldContent.slice(0, 1021) + '...' : oldContent, inline: false },
+            { name: 'بعد التعديل', value: newContent.length > 1024 ? newContent.slice(0, 1021) + '...' : newContent, inline: false }
+        )
+        .setTimestamp();
+
+    sendLogEmbed(embed);
 });
 
 // هـ) لوق انضمام / مغادرة الأعضاء للسيرفر
 client.on('guildMemberAdd', (member) => {
     if (member.user.bot) return;
-    const timestamp = Math.floor(Date.now() / 1000);
-    sendLog(
-        `📥 **لوق انضمام عضو للسيرفر**\n` +
-        `👤 **العضو:** ${member.user} (${member.user.username})\n` +
-        `🆔 **الأيدي:** \`${member.id}\` \n` +
-        `⏰ **الوقت:** <t:${timestamp}:f> (<t:${timestamp}:R>)`
-    );
+
+    const embed = new EmbedBuilder()
+        .setColor('#57f287') // أخضر
+        .setAuthor({ name: `انضمام عضو - ${member.user.tag}`, iconURL: member.user.displayAvatarURL() })
+        .addFields(
+            { name: 'العضو', value: `${member.user}`, inline: true },
+            { name: 'الأيدي', value: `\`${member.id}\``, inline: true }
+        )
+        .setTimestamp();
+
+    sendLogEmbed(embed);
 });
 
 client.on('guildMemberRemove', (member) => {
     if (member.user.bot) return;
-    const timestamp = Math.floor(Date.now() / 1000);
-    sendLog(
-        `📤 **لوق مغادرة عضو من السيرفر**\n` +
-        `👤 **العضو:** ${member.user} (${member.user.username})\n` +
-        `🆔 **الأيدي:** \`${member.id}\` \n` +
-        `⏰ **الوقت:** <t:${timestamp}:f> (<t:${timestamp}:R>)`
-    );
+
+    const embed = new EmbedBuilder()
+        .setColor('#ed4245') // أحمر
+        .setAuthor({ name: `مغادرة عضو - ${member.user.tag}`, iconURL: member.user.displayAvatarURL() })
+        .addFields(
+            { name: 'العضو', value: `${member.user}`, inline: true },
+            { name: 'الأيدي', value: `\`${member.id}\``, inline: true }
+        )
+        .setTimestamp();
+
+    sendLogEmbed(embed);
 });
 
 // ==========================================
