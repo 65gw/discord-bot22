@@ -35,7 +35,7 @@ const difyBaseUrl = process.env.DIFY_API_BASE_URL || 'https://api.dify.ai/v1';
 
 const TARGET_TEXT_CHANNEL_ID = '1459632620416532554'; 
 const TARGET_VOICE_CHANNEL_ID = '1433499015462387895'; 
-const LOG_CHANNEL_ID = '1539168688643645492'; // روم اللوق الرئيسي
+const LOG_CHANNEL_ID = '1539168688643645492';
 
 const difyApiKeys = [
     process.env.DIFY_API_KEY1,
@@ -71,15 +71,27 @@ const client = new Client({
 });
 
 // ==========================================
-// 2. توجيه الهوية الجديد: بوت مساعد برمي ومختصر
+// 2. توجيه الهوية الشامل للبوت التقني والذكائي
 // ==========================================
-const PROGRAMMING_ASSISTANT_PROMPT = `[توجيه الهوية]:
-أنت بوت مساعد برمجيات ذكي، محترف، ومختصر.
-القواعد الذهبية لإجاباتك:
-1. اختصر ردودك لأقصى حد ممكن ولا تسولف أبداً.
-2. جاوب مباشرة على المطلوب (كود، حل مشكلة، أو معلومة تقنية) دون مقدمات أو خواتم طويلة.
-3. إذا كان السؤال عن كود، أعطِ الكود الصحيح فوراً مع شرح بسيط في سطر أو سطرين إن لزم الأمر.
-4. حافظ على أسلوب عملي ومباشر كـ Bot تقني حقيقي.`;
+const BOT_PROMPT = `أنت بوت آلي متفاعل في سيرفر ديسكورد، ذكي، حاد الذكاء، ومباشر في التعامل. أنت تفهم سياق المحادثة بامتياز.
+
+[قواعد الشخصية وسلوك الرد الصارم]:
+
+1. سياق المحادثة والفهم الذكي:
+- أنت تفهم مجريات المحادثة. إذا طلب المستخدم طلباً مقتضباً مثل "طوره"، "عدله"، أو "اشرحه"، فاعلم أنه يقصد آخر موضوع أو كود تم النقاش حوله، وقم بتنفيذ الطلب على الفور استناداً للسياق السابق دون طلب توضيحات إضافية.
+
+2. البرمجة وتنسيق الأكواد (قاعدة صارمة جداً):
+- إذا كان الرد يحتوي على برمجة، أكواد، أو أوامر (Commands): اشرح بالتفصيل الشامل، وأعطه أفضل الممارسات.
+- **تنسيق الكود (Markdown):** يمنع منعاً باتاً إرسال أي كود برمجي كنص عادي. **يجب** وضع جميع الأكواد داخل مربعات الأكواد المنسقة (Code Blocks) باستخدام ثلاث علامات (\`\`\`) مع تحديد لغة البرمجة (مثال: \`\`\`python أو \`\`\`typescript) لضمان ظهورها بخلفية مخصصة في ديسكورد وعدم تداخل السطور.
+
+3. التعامل مع الصور، الستيكرات، GIF، والافتارات:
+- يمنع منعاً باتاً شرح الصورة أو وصف مكوناتها بأسلوب تقريري (ممنوع تقول "الصورة عبارة عن..." أو "يظهر بالصورة...").
+- افهم السياق والذبة أو المعنى الخفي خلف الستيكر/الميم/الافتار وتفاعل معه مباشرة:
+   - إذا كان الميم/الستيكر مضحك أو ذبة: رد بذبة أو تعليق ساخر متناسق معها.
+   - إذا كان يعبّر عن ردة فعل: تفاعل مع ردة الفعل بأسلوب واقعي وعفوي كعضو في الشات.
+
+4. السوالف والردود العامة:
+- إذا كانت الرسالة مجرد سوالف، سلام، أو كلام عام: يجب أن يكون الرد مقتضباً وقصيراً جداً (من سطر إلى سطرين كحد أقصى) وبدون إطالة أو رسميات.`;
 
 // ==========================================
 // 3. سيرفر الويب لخدمة Render
@@ -87,7 +99,7 @@ const PROGRAMMING_ASSISTANT_PROMPT = `[توجيه الهوية]:
 const PORT = process.env.PORT || 3000;
 http.createServer((req, res) => {
     res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8' });
-    res.write('Dev Assistant Bot is Online...');
+    res.write('Tech Assistant Bot is Online...');
     res.end();
 }).listen(PORT, () => {
     console.log(` [Server] Listening on port ${PORT}`);
@@ -120,7 +132,7 @@ async function sendLogEmbed(embed: EmbedBuilder) {
 }
 
 // ==========================================
-// 5. التواصل مع Dify
+// 5. التواصل مع Dify ومعالجة الصور والميديا
 // ==========================================
 async function sendQueryToDify(
     prompt: string, 
@@ -133,7 +145,7 @@ async function sendQueryToDify(
     let notifiedHighDemand = false;
 
     const files = imageUrl ? [{ type: 'image', transfer_method: 'remote_url', url: imageUrl }] : [];
-    const finalPrompt = `${PROGRAMMING_ASSISTANT_PROMPT}\n\n${prompt}`;
+    const finalPrompt = `${BOT_PROMPT}\n\n${prompt}`;
 
     for (let cycle = 0; cycle < maxCycles; cycle++) {
         let attempts = 0;
@@ -181,7 +193,7 @@ async function sendQueryToDify(
 }
 
 // ==========================================
-// 6. نظام تشخيص الأخطاء وإرسالها للوق
+// 6. نظام تشخيص الأخطاء المتقدم وإرسالها للوق
 // ==========================================
 async function handleSystemCrashAndReport(error: any, errorType: string) {
     console.error(` [Crash Detected - ${errorType}]:`, error);
@@ -196,16 +208,17 @@ async function handleSystemCrashAndReport(error: any, errorType: string) {
             sourceCode = 'تعذر قراءة ملف الكود المصدري.';
         }
 
-        const diagnosticPrompt = `حدث خطأ في البوت أثناء التشغيل:
-[الخطأ]:
+        const diagnosticPrompt = `حدث خطأ كراش في البوت أثناء التشغيل:
+[الخطأ / Stack Trace]:
 ${errorMessage.slice(0, 1500)}
 
-[الكود المصدري]:
+[أجزاء من الكود المصدري]:
 ${sourceCode.slice(0, 3000)}
 
-المطلوب:
-1. حدد السطر والمشكلة بشكل مباشر ومختصر.
-2. قدم الكود المصحح فقط.`;
+المطلوب منك:
+1. حدد في أي سطر/دالة حدثت المشكلة بالضبط.
+2. اشرح المشكلة بإيجاز.
+3. قدّم الكود المصحح للسطر المتضرر مباشرة داخل مربع كود markdown.`;
 
         const aiAnalysis = await sendQueryToDify(diagnosticPrompt, 'system_crash_reporter');
 
@@ -213,8 +226,8 @@ ${sourceCode.slice(0, 3000)}
             .setColor('#ff0000')
             .setTitle(`🚨 رصد خطأ في النظام (${errorType})`)
             .addFields(
-                { name: '📄 تفاصيل الخطأ', value: `\`\`\`javascript\n${errorMessage.slice(0, 1000)}\n\`\`\`` },
-                { name: '🛠️ تحليل AI والحل المباشر', value: aiAnalysis.slice(0, 1024) }
+                { name: '📄 تفاصيل الخطأ المباشر', value: `\`\`\`javascript\n${errorMessage.slice(0, 1000)}\n\`\`\`` },
+                { name: '🛠️ تحليل AI وموقع المشكلة مع الحل', value: aiAnalysis.slice(0, 1024) }
             )
             .setTimestamp();
 
@@ -407,7 +420,7 @@ client.on('interactionCreate', async interaction => {
             interaction.user.id, 
             undefined, 
             async () => {
-                await interaction.editReply('⏳ **انتظر، يوجد ضغط على السيرفرات حالياً...**');
+                await interaction.editReply('⏳ **انتظر، يوجد ضغط على السيرفرات حالياً وجاري معالجة الإجابة...**');
             }
         );
 
@@ -600,7 +613,7 @@ async function triggerRandomTopic(botClient: Client) {
     try {
         const channel = await botClient.channels.fetch(TARGET_TEXT_CHANNEL_ID);
         if (channel && channel.isTextBased()) {
-            const randomPrompt = `اطرح سؤالاً تقنياً أو برمجياً باختصار شديد في سطر واحد.`;
+            const randomPrompt = `اطرح سؤالاً تقنياً أو برمجياً باختصار شديد في سطر واحد لتحديث الشات.`;
             const answer = await sendQueryToDify(randomPrompt, 'cron_12h_system');
             if (!answer.startsWith('يبدو أن الاتصال') && !answer.startsWith('يبدو أن الضغط')) {
                 await (channel as TextChannel).send(answer);
@@ -619,6 +632,7 @@ function startPeriodicTask(botClient: Client) {
     }, 12 * 60 * 60 * 1000);
 }
 
+// معالجة قراءة الميديا (افتار، استيكر، صور، GIF)
 client.on('messageCreate', async message => {
     try {
         if (message.author.bot) return;
@@ -633,57 +647,58 @@ client.on('messageCreate', async message => {
 
             let chatHistoryContext = '';
             try {
-                const fetchedMessages = await message.channel.messages.fetch({ limit: 4 });
-                const last3 = Array.from(fetchedMessages.values())
+                const fetchedMessages = await message.channel.messages.fetch({ limit: 6 });
+                const last5 = Array.from(fetchedMessages.values())
                     .filter(m => m.id !== message.id)
                     .reverse()
-                    .slice(-3)
+                    .slice(-5)
                     .map(m => `${m.author.username}: ${m.content}`)
                     .join('\n');
 
-                if (last3) {
-                    chatHistoryContext = `[السياق السابق]:\n${last3}\n---`;
+                if (last5) {
+                    chatHistoryContext = `[سياق الرسائل الأخيرة]:\n${last5}\n---`;
                 }
             } catch (err) {
                 console.error('فشل جلب الرسائل:', err);
             }
 
-            let targetAvatarUrl: string | undefined = undefined;
-            let mentionDetails = '';
+            let mediaUrl: string | undefined = undefined;
+            let mediaTypeNotice = '';
 
+            // 1. فحص التاقات واستخراج صورة الافتار (Avatar)
             if (message.mentions.users.size > 0) {
                 const mentionedUser = message.mentions.users.find(u => u.id !== client.user?.id);
                 if (mentionedUser) {
-                    targetAvatarUrl = mentionedUser.displayAvatarURL({ extension: 'png', size: 512 });
-                    mentionDetails = `[المستهدف: ${mentionedUser.username}]`;
+                    mediaUrl = mentionedUser.displayAvatarURL({ extension: 'png', size: 512 });
+                    mediaTypeNotice = `[المرفق: صورة افتار العضو ${mentionedUser.username}]`;
                 }
             }
 
-            let mediaUrl = targetAvatarUrl;
-            let mediaNotice = mentionDetails;
-
+            // 2. فحص الستيكرات (Stickers)
             if (!mediaUrl && message.stickers.size > 0) {
                 const sticker = message.stickers.first();
                 if (sticker) {
                     mediaUrl = sticker.url;
-                    mediaNotice = `[استيكر: ${sticker.name}]`;
+                    mediaTypeNotice = `[المرفق: ستيكر باسم "${sticker.name}"]`;
                 }
             }
 
+            // 3. فحص المرفقات (Attachments: صور / GIF)
             if (!mediaUrl && message.attachments.size > 0) {
                 const attachment = message.attachments.first();
-                if (attachment) {
+                if (attachment && attachment.contentType?.startsWith('image/')) {
                     mediaUrl = attachment.url;
-                    mediaNotice = `[صورة مرفقة]`;
+                    mediaTypeNotice = attachment.contentType.includes('gif') ? `[المرفق: صورة متحركة GIF]` : `[المرفق: صورة مرفقة]`;
                 }
             }
 
+            // 4. فحص الروابط الخارجية للـ GIF (Tenor / Giphy)
             if (!mediaUrl) {
-                const tenorRegex = /(https?:\/\/(?:www\.)?(?:tenor\.com|giphy\.com)\/\S+)/i;
-                const match = message.content.match(tenorRegex);
+                const mediaLinkRegex = /(https?:\/\/(?:www\.)?(?:tenor\.com|giphy\.com|media\.giphy\.com)\/\S+)/i;
+                const match = message.content.match(mediaLinkRegex);
                 if (match) {
                     mediaUrl = match[0];
-                    mediaNotice = `[GIF]`;
+                    mediaTypeNotice = `[المرفق: رابط ميديا GIF / Meme]`;
                 }
             }
 
@@ -693,7 +708,7 @@ client.on('messageCreate', async message => {
                 cleanText = cleanText.replace(mentionRegex, '').trim();
             }
 
-            const promptToSend = `${chatHistoryContext}\nالكاتب: ${message.author.username}\nالسؤال: "${cleanText}"\n${mediaNotice}`;
+            const promptToSend = `${chatHistoryContext}\nصاحب الرسالة: ${message.author.username}\nالمحتوى النصي: "${cleanText}"\n${mediaTypeNotice}`;
 
             let highDemandMessage: any = null;
 
@@ -702,7 +717,7 @@ client.on('messageCreate', async message => {
                 message.author.id, 
                 mediaUrl, 
                 async () => {
-                    highDemandMessage = await message.reply('⏳ **انتظر، يوجد ضغط...**');
+                    highDemandMessage = await message.reply('⏳ **انتظر، يوجد ضغط على السيرفرات حالياً وجاري المعالجة...**');
                 }
             );
 
