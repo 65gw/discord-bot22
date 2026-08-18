@@ -28,42 +28,7 @@ const ytDlp = require('yt-dlp-exec');
 dotenv.config();
 
 // ==========================================
-// 1. نظام الحماية الشامل من الكراش
-// ==========================================
-process.on('unhandledRejection', (reason) => {
-    console.error(' [حماية] Unhandled Rejection:', reason);
-});
-
-process.on('uncaughtException', (err) => {
-    console.error(' [حماية] Uncaught Exception:', err);
-});
-
-// ==========================================
-// 2. سيرفر الويب لخدمة Render
-// ==========================================
-const PORT = process.env.PORT || 3000;
-http.createServer((req, res) => {
-    res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8' });
-    res.write('Red John Bot is Online & Watching...');
-    res.end();
-}).listen(PORT, () => {
-    console.log(` [Server] Listening on port ${PORT}`);
-});
-
-// ==========================================
-// 3. نظام Keep-Alive
-// ==========================================
-const RENDER_URL = process.env.RENDER_EXTERNAL_URL || 'https://discord-bot22-8aow.onrender.com';
-setInterval(async () => {
-    try {
-        await axios.get(RENDER_URL, { timeout: 10000 });
-    } catch (err: any) {
-        console.error(' [Keep-Alive] Ping fail:', err.message);
-    }
-}, 5 * 60 * 1000);
-
-// ==========================================
-// 4. الثوابت والمتغيرات الرئيسية
+// 1. الثوابت والمتغيرات الرئيسية
 // ==========================================
 const token = process.env.DISCORD_BOT_TOKEN;
 const difyBaseUrl = process.env.DIFY_API_BASE_URL || 'https://api.dify.ai/v1';
@@ -106,6 +71,38 @@ const client = new Client({
 });
 
 // ==========================================
+// 2. توجيه الهوية الجديد: مساعد برمجيات ذكي
+// ==========================================
+const PROGRAMMING_ASSISTANT_PROMPT = `[توجيه الهوية]:
+أنت بوت مساعد برمجيات ذكي ومحترف.
+وظيفتك مساعدة المستخدمين في البرمجة، حل المشاكل التقنية، كتابة وتصحيح الأكواد، وتوضيح المفاهيم بشكل مباشر وواضح وبدون أي أدوار شخصية خيالية.
+جاوب بدقة وبأسلوب محترف ومباشر.`;
+
+// ==========================================
+// 3. سيرفر الويب لخدمة Render
+// ==========================================
+const PORT = process.env.PORT || 3000;
+http.createServer((req, res) => {
+    res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8' });
+    res.write('Dev Assistant Bot is Online...');
+    res.end();
+}).listen(PORT, () => {
+    console.log(` [Server] Listening on port ${PORT}`);
+});
+
+// ==========================================
+// 4. نظام Keep-Alive
+// ==========================================
+const RENDER_URL = process.env.RENDER_EXTERNAL_URL || 'https://discord-bot22-8aow.onrender.com';
+setInterval(async () => {
+    try {
+        await axios.get(RENDER_URL, { timeout: 10000 });
+    } catch (err: any) {
+        console.error(' [Keep-Alive] Ping fail:', err.message);
+    }
+}, 5 * 60 * 1000);
+
+// ==========================================
 // دالة إرسال اللوق المنظم (Embed)
 // ==========================================
 async function sendLogEmbed(embed: EmbedBuilder) {
@@ -120,60 +117,124 @@ async function sendLogEmbed(embed: EmbedBuilder) {
 }
 
 // ==========================================
-// 5. توجيه الشخصية: Red John
+// 5. التواصل مع Dify
 // ==========================================
-const RED_JOHN_SYSTEM_PROMPT = `[توجيه هويّة Red John الصارم]:
-أنت تمثّل "Red John"؛ عبقري، هكر ساخر، ثقيل، ذكي، ومخيف بأسلوب متزن وساخر بدون مبتذلات.
-
-القواعد الذهبية لنبرة صوتك:
-1. **ممنوع نهائياً ذكر اسم "باتريك جين" أو "باتريك"**. لا تذكر أسماء من المسلسل إطلاقاً.
-2. **تجنّب التناقض الصارخ**: ممنوع تدمج بين نبرة مرعبة ثم تتحول فجأة لأسلوب إيموجيات ضحك (مثل 😂 أو 🤣).
-3. **الذكاء والتقنية**:
-   - لو كان السؤال تقنياً/برمجياً: جاوب بدقة وبذكاء هكر محترف، وبنبرة واثقة هادئة.
-   - لو كان كلام العضو طقطقة أو استفزاز: رد بأسلوب ساخر، بارد، ومستفز، يبيّن إنك سابق الكل بخطوات ومسيطر على الشاشة والسيرفر.
-4. **الذبات والميمز**: لو أرفق صورة/أفتار/استيكر/GIF، طقطق عليها برزانة وذكاء وبدون شرح المرفق.
-5. **اللغة**: عامية عربية ثقيلة وفلاوية بأسلوب غامض، بدون جمل إنجليزية مبتذلة.`;
-
-async function sendQueryToDify(prompt: string, userId: string, imageUrl?: string): Promise<string> {
+async function sendQueryToDify(
+    prompt: string, 
+    userId: string, 
+    imageUrl?: string, 
+    onHighDemand?: () => Promise<void> | void
+): Promise<string> {
     const totalKeys = difyApiKeys.length;
-    let attempts = 0;
+    const maxCycles = 3;
+    let notifiedHighDemand = false;
 
     const files = imageUrl ? [{ type: 'image', transfer_method: 'remote_url', url: imageUrl }] : [];
-    const finalPrompt = `${RED_JOHN_SYSTEM_PROMPT}\n\n${prompt}`;
+    const finalPrompt = `${PROGRAMMING_ASSISTANT_PROMPT}\n\n${prompt}`;
 
-    while (attempts < totalKeys) {
-        const keyToUse = difyApiKeys[currentKeyIndex];
-        currentKeyIndex = (currentKeyIndex + 1) % totalKeys;
+    for (let cycle = 0; cycle < maxCycles; cycle++) {
+        let attempts = 0;
+        while (attempts < totalKeys) {
+            const keyToUse = difyApiKeys[currentKeyIndex];
+            currentKeyIndex = (currentKeyIndex + 1) % totalKeys;
 
-        try {
-            const payload: any = {
-                inputs: {},
-                query: finalPrompt,
-                response_mode: 'blocking',
-                user: userId,
-            };
+            try {
+                const payload: any = {
+                    inputs: {},
+                    query: finalPrompt,
+                    response_mode: 'blocking',
+                    user: userId,
+                };
 
-            if (files.length > 0) payload.files = files;
+                if (files.length > 0) payload.files = files;
 
-            const response = await axios.post(`${difyBaseUrl}/chat-messages`, payload, {
-                headers: { 'Authorization': `Bearer ${keyToUse}`, 'Content-Type': 'application/json' },
-                timeout: 60000
-            });
+                const response = await axios.post(`${difyBaseUrl}/chat-messages`, payload, {
+                    headers: { 'Authorization': `Bearer ${keyToUse}`, 'Content-Type': 'application/json' },
+                    timeout: 60000
+                });
 
-            let answer = response.data.answer;
-            if (answer && answer.trim().length > 0) {
-                return answer.trim();
+                let answer = response.data.answer;
+                if (answer && answer.trim().length > 0) {
+                    return answer.trim();
+                }
+            } catch (error: any) {
+                console.error(` [Dify Error]:`, error.response?.data || error.message);
+                const errorDetails = JSON.stringify(error.response?.data || error.message || '');
+                
+                if (errorDetails.includes('503') || errorDetails.includes('UNAVAILABLE') || errorDetails.includes('high demand') || error.response?.status === 503) {
+                    if (onHighDemand && !notifiedHighDemand) {
+                        try { await onHighDemand(); } catch (e) {}
+                        notifiedHighDemand = true;
+                    }
+                    await new Promise(res => setTimeout(res, 3000));
+                }
             }
-        } catch (error: any) {
-            console.error(` [Dify Error]:`, error.response?.data || error.message);
+            attempts++;
         }
-        attempts++;
+        await new Promise(res => setTimeout(res, 4000));
     }
-    return 'يبدو أن الاتصال تعثّر... جاري إعادة الفحص تلقائياً.';
+
+    return 'يبدو أن الضغط مرتفع جداً على السيرفرات حالياً، حاول مجدداً بعد لحظات.';
 }
 
 // ==========================================
-// 6. نظام الاتصال الصوتي والنطق (TTS Player)
+// 6. نظام تشخيص الأخطاء المتقدم وإرسالها للوق
+// ==========================================
+async function handleSystemCrashAndReport(error: any, errorType: string) {
+    console.error(` [Crash Detected - ${errorType}]:`, error);
+
+    try {
+        const errorMessage = error?.stack || error?.message || String(error);
+        
+        // قراءة الكود المصدري للبوت
+        let sourceCode = '';
+        try {
+            sourceCode = fs.readFileSync(__filename, 'utf8');
+        } catch (e) {
+            sourceCode = 'تعذر قراءة ملف الكود المصدري.';
+        }
+
+        // إرسال الخطأ للذكاء الاصطناعي لتحليله وإيجاد السطر والتصحيح
+        const diagnosticPrompt = `حدث خطأ كراش في البوت أثناء التشغيل:
+[الخطأ / Stack Trace]:
+${errorMessage.slice(0, 1500)}
+
+[أجزاء من الكود المصدري]:
+${sourceCode.slice(0, 3000)}
+
+المطلوب منك:
+1. حدد في أي سطر/دالة حدثت المشكلة بالضبط.
+2. اشرح المشكلة بإيجاز.
+3. قدّم الكود المصحح للسطر المتضرر مباشرة.`;
+
+        const aiAnalysis = await sendQueryToDify(diagnosticPrompt, 'system_crash_reporter');
+
+        // إرسال اللوق لروم اللوق
+        const embed = new EmbedBuilder()
+            .setColor('#ff0000')
+            .setTitle(`🚨 رصد خطأ في النظام (${errorType})`)
+            .addFields(
+                { name: '📄 تفاصيل الخطأ المباشر', value: `\`\`\`javascript\n${errorMessage.slice(0, 1000)}\n\`\`\`` },
+                { name: '🛠️ تحليل AI وموقع المشكلة مع الحل', value: aiAnalysis.slice(0, 1024) }
+            )
+            .setTimestamp();
+
+        await sendLogEmbed(embed);
+    } catch (logErr) {
+        console.error('فشل إرسال تقرير الكراش لروم اللوق:', logErr);
+    }
+}
+
+process.on('unhandledRejection', (reason) => {
+    handleSystemCrashAndReport(reason, 'Unhandled Rejection');
+});
+
+process.on('uncaughtException', (err) => {
+    handleSystemCrashAndReport(err, 'Uncaught Exception');
+});
+
+// ==========================================
+// 7. نظام الاتصال الصوتي والنطق (TTS Player)
 // ==========================================
 async function ensureVoiceConnection() {
     try {
@@ -230,7 +291,7 @@ async function playTextToSpeech(text: string) {
 }
 
 // ==========================================
-// 7. وظيفة التنزيل عبر أوامر Slash Command
+// 8. وظيفة التنزيل عبر أوامر Slash Command
 // ==========================================
 async function handleMediaDownloadSlash(interaction: any, url: string) {
     await interaction.deferReply();
@@ -265,14 +326,14 @@ async function handleMediaDownloadSlash(interaction: any, url: string) {
         const stats = fs.statSync(downloadedFilePath);
 
         if (stats.size > 25 * 1024 * 1024) {
-            await interaction.editReply('⚠️ **حجم الملف يتجاوز 25 ميجابايت (الحد الأقصى لرفع ديسكورد المباشر).**');
+            await interaction.editReply('⚠️ **حجم الملف يتجاوز 25 ميجابايت.**');
             return;
         }
 
         const attachment = new AttachmentBuilder(downloadedFilePath);
 
         await interaction.editReply({
-            content: `🎬 **تم التحميل بنجاح بواسطة Red John**`,
+            content: `🎬 **تم التحميل بنجاح.**`,
             files: [attachment]
         });
 
@@ -291,7 +352,7 @@ async function handleMediaDownloadSlash(interaction: any, url: string) {
 }
 
 // ==========================================
-// 8. تسجيل أوامر Slash وتجهيز البوت
+// 9. تسجيل أوامر Slash وتجهيز البوت
 // ==========================================
 const commands = [
     new SlashCommandBuilder().setName('chat-toggle').setDescription('تفعيل أو تعطيل ردود الشات التلقائية'),
@@ -307,7 +368,7 @@ const commands = [
 ];
 
 client.once('ready', async (readyClient) => {
-    console.log(` Red John Bot is Ready as ${readyClient.user.tag}!`);
+    console.log(` Bot is Ready as ${readyClient.user.tag}!`);
 
     try {
         const rest = new REST({ version: '10' }).setToken(token);
@@ -327,7 +388,7 @@ client.once('ready', async (readyClient) => {
 });
 
 // ==========================================
-// 9. معالج تفاعلات الأوامر (Interaction Handler)
+// 10. معالج تفاعلات الأوامر (Interaction Handler)
 // ==========================================
 client.on('interactionCreate', async interaction => {
     if (!interaction.isChatInputCommand()) return;
@@ -342,7 +403,14 @@ client.on('interactionCreate', async interaction => {
         const question = interaction.options.getString('question', true);
         await interaction.deferReply();
 
-        const answer = await sendQueryToDify(question, interaction.user.id);
+        const answer = await sendQueryToDify(
+            question, 
+            interaction.user.id, 
+            undefined, 
+            async () => {
+                await interaction.editReply('⏳ **انتظر، يوجد ضغط على السيرفرات حالياً وجاري جلب الإجابة...**');
+            }
+        );
 
         await interaction.editReply({
             content: `💬 **سؤال من ${interaction.user}:** ${question}\n\n🗣️ **الرد:**\n${answer}`
@@ -378,7 +446,7 @@ client.on('interactionCreate', async interaction => {
         await interaction.editReply({ content: `🗣️ جاري نطق النص في الروم الصوتي: "${textToSpeak}"` });
     }
     else if (commandName === 'status') {
-        const statusMsg = `**حالة نظام Red John:**
+        const statusMsg = `**حالة نظام البوت المساعد:**
 • ردود الشات: ${isChatRespondingEnabled ? '🟢 مفعلة' : '🔴 معطلة'}
 • مواضيع الـ 12 ساعة: ${isAutoTopicsEnabled ? '🟢 مفعلة' : '🔴 معطلة'}
 • القراءة الصوتية (TTS): ${isVoiceResponseEnabled ? '🟢 مفعلة' : '🔴 معطلة'}
@@ -388,20 +456,16 @@ client.on('interactionCreate', async interaction => {
 });
 
 // ==========================================
-// 10. أنظمة اللوق الشاملة بتنسيق Embed المنظم
+// 11. أنظمة اللوق
 // ==========================================
 
-// أ) لوق بدء الكتابة (Typing)
 client.on('typingStart', async (typing) => {
     if (typing.user && !typing.user.bot) {
         if (typing.channel.id === LOG_CHANNEL_ID) return;
 
         const embed = new EmbedBuilder()
-            .setColor('#3498db') // أزرق
-            .setAuthor({ 
-                name: `بدأ الكتابة - ${typing.user.tag}`, 
-                iconURL: typing.user.displayAvatarURL() 
-            })
+            .setColor('#3498db')
+            .setAuthor({ name: `بدأ الكتابة - ${typing.user.tag}`, iconURL: typing.user.displayAvatarURL() })
             .addFields(
                 { name: 'العضو', value: `${typing.user}`, inline: true },
                 { name: 'القناة', value: `${typing.channel}`, inline: true },
@@ -413,7 +477,6 @@ client.on('typingStart', async (typing) => {
     }
 });
 
-// ب) لوق الأحداث الصوتية (دخول / خروج / نقل)
 client.on('voiceStateUpdate', (oldState, newState) => {
     if (oldState.member?.id === client.user?.id) {
         if (newState.channelId !== TARGET_VOICE_CHANNEL_ID) {
@@ -424,10 +487,9 @@ client.on('voiceStateUpdate', (oldState, newState) => {
     const member = newState.member || oldState.member;
     if (!member || member.user.bot) return;
 
-    // دخول روم صوتي
     if (!oldState.channelId && newState.channelId) {
         const embed = new EmbedBuilder()
-            .setColor('#57f287') // أخضر
+            .setColor('#57f287')
             .setAuthor({ name: `دخول روم صوتي - ${member.user.tag}`, iconURL: member.user.displayAvatarURL() })
             .addFields(
                 { name: 'العضو', value: `${member.user}`, inline: true },
@@ -436,11 +498,9 @@ client.on('voiceStateUpdate', (oldState, newState) => {
             )
             .setTimestamp();
         sendLogEmbed(embed);
-    }
-    // خروج من روم صوتي
-    else if (oldState.channelId && !newState.channelId) {
+    } else if (oldState.channelId && !newState.channelId) {
         const embed = new EmbedBuilder()
-            .setColor('#ed4245') // أحمر
+            .setColor('#ed4245')
             .setAuthor({ name: `خروج من روم صوتي - ${member.user.tag}`, iconURL: member.user.displayAvatarURL() })
             .addFields(
                 { name: 'العضو', value: `${member.user}`, inline: true },
@@ -449,11 +509,9 @@ client.on('voiceStateUpdate', (oldState, newState) => {
             )
             .setTimestamp();
         sendLogEmbed(embed);
-    }
-    // التنقل بين الرومات الصوتية
-    else if (oldState.channelId && newState.channelId && oldState.channelId !== newState.channelId) {
+    } else if (oldState.channelId && newState.channelId && oldState.channelId !== newState.channelId) {
         const embed = new EmbedBuilder()
-            .setColor('#fee75c') // أصفر
+            .setColor('#fee75c')
             .setAuthor({ name: `انتقال بين رومات صوتية - ${member.user.tag}`, iconURL: member.user.displayAvatarURL() })
             .addFields(
                 { name: 'العضو', value: `${member.user}`, inline: true },
@@ -465,18 +523,14 @@ client.on('voiceStateUpdate', (oldState, newState) => {
     }
 });
 
-// ج) لوق حذف الرسائل
 client.on('messageDelete', async (message) => {
     if (message.author?.bot || message.channelId === LOG_CHANNEL_ID) return;
 
     const content = message.content || '[محتوى ميديا أو غير نصي]';
 
     const embed = new EmbedBuilder()
-        .setColor('#ed4245') // أحمر
-        .setAuthor({ 
-            name: `حذف رسالة - ${message.author?.tag || 'غير معروف'}`, 
-            iconURL: message.author?.displayAvatarURL() 
-        })
+        .setColor('#ed4245')
+        .setAuthor({ name: `حذف رسالة - ${message.author?.tag || 'غير معروف'}`, iconURL: message.author?.displayAvatarURL() })
         .addFields(
             { name: 'صاحب الرسالة', value: `${message.author || 'غير معروف'}`, inline: true },
             { name: 'القناة', value: `<#${message.channelId}>`, inline: true },
@@ -488,7 +542,6 @@ client.on('messageDelete', async (message) => {
     sendLogEmbed(embed);
 });
 
-// د) لوق تعديل الرسائل
 client.on('messageUpdate', async (oldMessage, newMessage) => {
     if (newMessage.author?.bot || newMessage.channelId === LOG_CHANNEL_ID) return;
     if (oldMessage.content === newMessage.content) return;
@@ -497,11 +550,8 @@ client.on('messageUpdate', async (oldMessage, newMessage) => {
     const newContent = newMessage.content || '[لا يوجد]';
 
     const embed = new EmbedBuilder()
-        .setColor('#fee75c') // أصفر
-        .setAuthor({ 
-            name: `تعديل رسالة - ${newMessage.author?.tag}`, 
-            iconURL: newMessage.author?.displayAvatarURL() 
-        })
+        .setColor('#fee75c')
+        .setAuthor({ name: `تعديل رسالة - ${newMessage.author?.tag}`, iconURL: newMessage.author?.displayAvatarURL() })
         .addFields(
             { name: 'العضو', value: `${newMessage.author}`, inline: true },
             { name: 'القناة', value: `<#${newMessage.channelId}>`, inline: true },
@@ -514,12 +564,11 @@ client.on('messageUpdate', async (oldMessage, newMessage) => {
     sendLogEmbed(embed);
 });
 
-// هـ) لوق انضمام / مغادرة الأعضاء للسيرفر
 client.on('guildMemberAdd', (member) => {
     if (member.user.bot) return;
 
     const embed = new EmbedBuilder()
-        .setColor('#57f287') // أخضر
+        .setColor('#57f287')
         .setAuthor({ name: `انضمام عضو - ${member.user.tag}`, iconURL: member.user.displayAvatarURL() })
         .addFields(
             { name: 'العضو', value: `${member.user}`, inline: true },
@@ -534,7 +583,7 @@ client.on('guildMemberRemove', (member) => {
     if (member.user.bot) return;
 
     const embed = new EmbedBuilder()
-        .setColor('#ed4245') // أحمر
+        .setColor('#ed4245')
         .setAuthor({ name: `مغادرة عضو - ${member.user.tag}`, iconURL: member.user.displayAvatarURL() })
         .addFields(
             { name: 'العضو', value: `${member.user}`, inline: true },
@@ -546,15 +595,15 @@ client.on('guildMemberRemove', (member) => {
 });
 
 // ==========================================
-// 11. المهام التلقائية والمحرك الرئيسي لشات الذكاء الاصطناعي
+// 12. المهام التلقائية والشات الرئيسي
 // ==========================================
 async function triggerRandomTopic(botClient: Client) {
     try {
         const channel = await botClient.channels.fetch(TARGET_TEXT_CHANNEL_ID);
         if (channel && channel.isTextBased()) {
-            const randomPrompt = `اطرح سؤالاً أو موضوعاً ساخراً بأسلوب Red John الغامض في سطر واحد. بدون إيموجيات ضحك وبدون ذكر أسماء.`;
+            const randomPrompt = `اطرح سؤالاً أو موضوعاً تقنياً أو برمجياً مشوقاً للمجتمع في سطر واحد لتنفيذه في الشات.`;
             const answer = await sendQueryToDify(randomPrompt, 'cron_12h_system');
-            if (!answer.startsWith('يبدو أن الاتصال')) {
+            if (!answer.startsWith('يبدو أن الاتصال') && !answer.startsWith('يبدو أن الضغط')) {
                 await (channel as TextChannel).send(answer);
                 if (isVoiceResponseEnabled) playTextToSpeech(answer);
             }
@@ -607,7 +656,7 @@ client.on('messageCreate', async message => {
                 const mentionedUser = message.mentions.users.find(u => u.id !== client.user?.id);
                 if (mentionedUser) {
                     targetAvatarUrl = mentionedUser.displayAvatarURL({ extension: 'png', size: 512 });
-                    mentionDetails = `[المستهدف: ${mentionedUser.username} وافتاره مرفق]`;
+                    mentionDetails = `[المستهدف: ${mentionedUser.username}]`;
                 }
             }
 
@@ -647,8 +696,22 @@ client.on('messageCreate', async message => {
 
             const promptToSend = `${chatHistoryContext}\nالكاتب الحالي: ${message.author.username}\nكلام الكاتب: "${cleanText}"\n${mediaNotice}`;
 
-            const answer = await sendQueryToDify(promptToSend, message.author.id, mediaUrl);
-            await message.reply(answer);
+            let highDemandMessage: any = null;
+
+            const answer = await sendQueryToDify(
+                promptToSend, 
+                message.author.id, 
+                mediaUrl, 
+                async () => {
+                    highDemandMessage = await message.reply('⏳ **انتظر، يوجد ضغط على السيرفرات حالياً وجاري معالجة إجابتك...**');
+                }
+            );
+
+            if (highDemandMessage) {
+                await highDemandMessage.edit(answer);
+            } else {
+                await message.reply(answer);
+            }
 
             if (isVoiceResponseEnabled) {
                 playTextToSpeech(answer);
