@@ -22,13 +22,12 @@ import dotenv from 'dotenv';
 import http from 'http';
 import fs from 'fs';
 import path from 'path';
-
-const ytDlp = require('yt-dlp-exec');
+import ytDlp from 'yt-dlp-exec';
 
 dotenv.config();
 
 // ==========================================
-// 1. الثوابت والمتغيرات الرئيسية
+// 1. الثوابت ومتغيرات الرئيسية
 // ==========================================
 const token = process.env.DISCORD_BOT_TOKEN;
 const difyBaseUrl = process.env.DIFY_API_BASE_URL || 'https://api.dify.ai/v1';
@@ -164,7 +163,6 @@ async function sendQueryToDify(
     const maxCycles = 3;
     let notifiedHighDemand = false;
 
-    // التحقق من صحة امتداد رابط الصورة قبل الإرسال
     const isValidImageUrl = imageUrl && (
         imageUrl.endsWith('.png') || 
         imageUrl.endsWith('.jpg') || 
@@ -332,7 +330,7 @@ async function playTextToSpeech(text: string) {
 }
 
 // ==========================================
-// 8. وظيفة التنزيل عبر أوامر Slash Command (اصلاح التنفيذ)
+// 8. وظيفة التنزيل عبر أوامر Slash Command
 // ==========================================
 async function handleMediaDownloadSlash(interaction: any, url: string) {
     await interaction.deferReply();
@@ -348,14 +346,12 @@ async function handleMediaDownloadSlash(interaction: any, url: string) {
 
         const outputTemplate = path.join(downloadsDir, `${uniquePrefix}.%(ext)s`);
 
-        // تعديل طريقة استدعاء yt-dlp لضمان التوافقية
-        await ytDlp.exec([
-            url,
-            '-o', outputTemplate,
-            '-f', 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best',
-            '--no-warnings',
-            '--max-filesize', '25M'
-        ]);
+        await ytDlp(url, {
+            output: outputTemplate,
+            format: 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best',
+            noWarnings: true,
+            maxFilesize: '25M',
+        });
 
         const files = fs.readdirSync(downloadsDir);
         const foundFile = files.find(f => f.startsWith(uniquePrefix));
@@ -503,9 +499,22 @@ client.on('interactionCreate', async interaction => {
 // 11. أنظمة اللوق
 // ==========================================
 
+const typingCooldowns = new Map<string, number>();
+
 client.on('typingStart', async (typing) => {
     if (typing.user && !typing.user.bot) {
         if (typing.channel.id === LOG_CHANNEL_ID) return;
+
+        const userId = typing.user.id;
+        const now = Date.now();
+        const TWO_HOURS_IN_MS = 2 * 60 * 60 * 1000;
+
+        const lastLogTime = typingCooldowns.get(userId);
+        if (lastLogTime && (now - lastLogTime < TWO_HOURS_IN_MS)) {
+            return;
+        }
+
+        typingCooldowns.set(userId, now);
 
         const embed = new EmbedBuilder()
             .setColor('#3498db')
@@ -700,7 +709,6 @@ client.on('messageCreate', async message => {
             let mediaUrl: string | undefined = undefined;
             let mediaTypeNotice = '';
 
-            // 1. فحص التاقات واستخراج صورة الافتار (Avatar)
             if (message.mentions.users.size > 0) {
                 const mentionedUser = message.mentions.users.find(u => u.id !== client.user?.id);
                 if (mentionedUser) {
@@ -709,7 +717,6 @@ client.on('messageCreate', async message => {
                 }
             }
 
-            // 2. فحص الستيكرات (Stickers)
             if (!mediaUrl && message.stickers.size > 0) {
                 const sticker = message.stickers.first();
                 if (sticker) {
@@ -718,7 +725,6 @@ client.on('messageCreate', async message => {
                 }
             }
 
-            // 3. فحص المرفقات (Attachments: صور / GIF)
             if (!mediaUrl && message.attachments.size > 0) {
                 const attachment = message.attachments.first();
                 if (attachment && attachment.contentType?.startsWith('image/')) {
@@ -727,7 +733,6 @@ client.on('messageCreate', async message => {
                 }
             }
 
-            // 4. فحص الروابط الخارجية للـ GIF (Tenor / Giphy)
             if (!mediaUrl) {
                 const mediaLinkRegex = /(https?:\/\/(?:www\.)?(?:tenor\.com|giphy\.com|media\.giphy\.com)\/\S+)/i;
                 const match = message.content.match(mediaLinkRegex);
@@ -755,7 +760,6 @@ client.on('messageCreate', async message => {
                 }
             );
 
-            // تقسيم الرد إذا تجاوز حد 2000 حرف
             const chunks = splitMessage(answer);
 
             if (highDemandMessage) {
