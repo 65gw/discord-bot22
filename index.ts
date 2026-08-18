@@ -160,35 +160,38 @@ async function sendQueryToDify(prompt: string, userId: string, imageUrl?: string
 async function ensureVoiceConnection() {
     try {
         const voiceChannel = await client.channels.fetch(TARGET_VOICE_CHANNEL_ID).catch(() => null);
-        if (!voiceChannel || !voiceChannel.isVoiceBased()) return;
+        if (!voiceChannel || !voiceChannel.isVoiceBased()) return null;
 
-        const existingConnection = getVoiceConnection(voiceChannel.guild.id);
-        
-        if (existingConnection && existingConnection.state.status === VoiceConnectionStatus.Ready) {
-            return existingConnection;
-        }
+        let connection = getVoiceConnection(voiceChannel.guild.id);
 
-        const connection = joinVoiceChannel({
-            channelId: TARGET_VOICE_CHANNEL_ID,
-            guildId: voiceChannel.guild.id,
-            adapterCreator: voiceChannel.guild.voiceAdapterCreator,
-            selfDeaf: false,
-            selfMute: false,
-        });
-
-        connection.subscribe(audioPlayer);
-
-        connection.on(VoiceConnectionStatus.Disconnected, async () => {
-            try {
-                await Promise.race([
-                    entersState(connection, VoiceConnectionStatus.Signalling, 5_000),
-                    entersState(connection, VoiceConnectionStatus.Connecting, 5_000),
-                ]);
-            } catch (error) {
-                try { connection.destroy(); } catch (e) {}
-                setTimeout(() => ensureVoiceConnection(), 2000);
+        if (connection) {
+            if (connection.state.status === VoiceConnectionStatus.Ready) {
+                return connection;
             }
-        });
+        } else {
+            connection = joinVoiceChannel({
+                channelId: TARGET_VOICE_CHANNEL_ID,
+                guildId: voiceChannel.guild.id,
+                adapterCreator: voiceChannel.guild.voiceAdapterCreator,
+                selfDeaf: false,
+                selfMute: false,
+            });
+
+            connection.setMaxListeners(30);
+            connection.subscribe(audioPlayer);
+
+            connection.on(VoiceConnectionStatus.Disconnected, async () => {
+                try {
+                    await Promise.race([
+                        entersState(connection, VoiceConnectionStatus.Signalling, 5_000),
+                        entersState(connection, VoiceConnectionStatus.Connecting, 5_000),
+                    ]);
+                } catch (error) {
+                    try { connection.destroy(); } catch (e) {}
+                    setTimeout(() => ensureVoiceConnection(), 2000);
+                }
+            });
+        }
 
         return connection;
     } catch (error) {
@@ -199,7 +202,7 @@ async function ensureVoiceConnection() {
 async function playTextToSpeech(text: string) {
     try {
         await ensureVoiceConnection();
-        const cleanText = text.replace(/[*_~`#]/g, '').slice(0, 180);
+        const cleanText = text.replace(/[*_~`#]/g, '').slice(0, 200);
         const ttsUrl = `https://translate.google.com/translate_tts?ie=UTF-8&client=tw-ob&tl=ar&q=${encodeURIComponent(cleanText)}`;
         const resource = createAudioResource(ttsUrl);
         audioPlayer.play(resource);
@@ -209,7 +212,7 @@ async function playTextToSpeech(text: string) {
 }
 
 // ==========================================
-// 7. وظيفة التنزيل عبر أومر Slash Command
+// 7. وظيفة التنزيل عبر أوامر Slash Command
 // ==========================================
 async function handleMediaDownloadSlash(interaction: any, url: string) {
     await interaction.deferReply();
@@ -278,6 +281,8 @@ const commands = [
     new SlashCommandBuilder().setName('voice-toggle').setDescription('تفعيل أو تعطيل تحويل الردود إلى صوت في الروم الصوتي'),
     new SlashCommandBuilder().setName('speak').setDescription('جعل البوت يتحدث بنص معين في الروم الصوتي')
         .addStringOption(opt => opt.setName('text').setDescription('النص المراد نطقة').setRequired(true)),
+    new SlashCommandBuilder().setName('askroom').setDescription('طرح سؤال على البوت والإجابة عليه صوتياً في الروم الصوتي')
+        .addStringOption(opt => opt.setName('question').setDescription('السؤال المراد إجابته').setRequired(true)),
     new SlashCommandBuilder().setName('status').setDescription('عرض حالة النظام والبوت الحالية'),
     new SlashCommandBuilder().setName('download').setDescription('تحميل مقطع فيديو أو صورة من أي رابط بأعلى جودة')
         .addStringOption(opt => opt.setName('url').setDescription('رابط الميديا (تيك توك، انستا، يوتيوب...)').setRequired(true))
@@ -314,6 +319,18 @@ client.on('interactionCreate', async interaction => {
     if (commandName === 'download') {
         const targetUrl = interaction.options.getString('url', true);
         await handleMediaDownloadSlash(interaction, targetUrl);
+    }
+    else if (commandName === 'askroom') {
+        const question = interaction.options.getString('question', true);
+        await interaction.deferReply();
+
+        const answer = await sendQueryToDify(question, interaction.user.id);
+
+        await interaction.editReply({
+            content: `💬 **سؤال من ${interaction.user}:** ${question}\n\n🗣️ **الرد:**\n${answer}`
+        });
+
+        await playTextToSpeech(answer);
     }
     else if (commandName === 'chat-toggle') {
         isChatRespondingEnabled = !isChatRespondingEnabled;
