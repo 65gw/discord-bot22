@@ -5,7 +5,6 @@ import {
     Routes, 
     SlashCommandBuilder, 
     TextChannel,
-    AttachmentBuilder,
     EmbedBuilder,
     MessageFlags
 } from 'discord.js';
@@ -14,8 +13,7 @@ import {
     createAudioPlayer, 
     createAudioResource, 
     VoiceConnectionStatus, 
-    entersState,
-    getVoiceConnection
+    entersState
 } from '@discordjs/voice';
 
 // ==========================================
@@ -40,7 +38,9 @@ const audioPlayer = createAudioPlayer();
 let isChatRespondingEnabled = true;
 let isAutoTopicsEnabled = true;
 let isVoiceResponseEnabled = true;
+
 let isConnectingLock = false;
+let currentVoiceConnection: ReturnType<typeof joinVoiceChannel> | null = null;
 
 // ==========================================
 // 2. تسجيل الأوامر (Slash Commands)
@@ -60,7 +60,7 @@ const commands = [
         .setDescription('نطق نص معين داخل الروم الصوتي')
         .addStringOption(option => 
             option.setName('text')
-                .setDescription('النصر المراد نطقه')
+                .setDescription('النص المراد نطقه')
                 .setRequired(true)),
     new SlashCommandBuilder()
         .setName('status')
@@ -93,7 +93,7 @@ async function sendLogEmbed(embed: EmbedBuilder) {
 }
 
 // ==========================================
-// 4. نظام الاتصال الصوتي والنطق (ثبات تام)
+// 4. نظام الاتصال الصوتي والنطق (إعادة دخول فورية وثبات تام)
 // ==========================================
 async function ensureVoiceConnection() {
     if (isConnectingLock) return null;
@@ -102,18 +102,11 @@ async function ensureVoiceConnection() {
         const guild = client.guilds.cache.first();
         if (!guild) return null;
 
-        const existingConnection = getVoiceConnection(guild.id);
-
-        if (existingConnection) {
-            const currentChannelId = existingConnection.joinConfig.channelId;
-            const status = existingConnection.state.status;
-
-            if (currentChannelId === TARGET_VOICE_CHANNEL_ID && (status === VoiceConnectionStatus.Ready || status === VoiceConnectionStatus.Connecting)) {
-                return existingConnection;
-            }
-
-            if (status !== VoiceConnectionStatus.Destroyed) {
-                existingConnection.destroy();
+        // التحقق من الاتصال الحالي
+        if (currentVoiceConnection) {
+            const status = currentVoiceConnection.state.status;
+            if (status === VoiceConnectionStatus.Ready || status === VoiceConnectionStatus.Signalling) {
+                return currentVoiceConnection;
             }
         }
 
@@ -133,19 +126,27 @@ async function ensureVoiceConnection() {
             selfMute: false,
         });
 
+        currentVoiceConnection = connection;
         connection.subscribe(audioPlayer);
 
+        // التعامل مع الانقطاع بإعادة محاولة لمودة ثانيتين فقط
         connection.on(VoiceConnectionStatus.Disconnected, async () => {
             try {
                 await Promise.race([
-                    entersState(connection, VoiceConnectionStatus.Signalling, 5_000),
-                    entersState(connection, VoiceConnectionStatus.Connecting, 5_000),
+                    entersState(connection, VoiceConnectionStatus.Signalling, 2_000),
+                    entersState(connection, VoiceConnectionStatus.Connecting, 2_000),
                 ]);
             } catch (error) {
-                if (connection.state.status !== VoiceConnectionStatus.Destroyed) {
-                    connection.destroy();
-                }
+                try { connection.destroy(); } catch (_) {}
+                currentVoiceConnection = null;
+                isConnectingLock = false;
+                // إعادة الاتصال خلال ثانية واحدة
+                setTimeout(() => ensureVoiceConnection(), 1000);
             }
+        });
+
+        connection.on(VoiceConnectionStatus.Destroyed, () => {
+            currentVoiceConnection = null;
         });
 
         isConnectingLock = false;
@@ -153,6 +154,7 @@ async function ensureVoiceConnection() {
     } catch (error) {
         console.error('❌ خطأ في ensureVoiceConnection:', error);
         isConnectingLock = false;
+        currentVoiceConnection = null;
         return null;
     }
 }
@@ -223,14 +225,20 @@ client.on('interactionCreate', async (interaction) => {
     }
 });
 
-// معالجة تغييرات الرومات الصوتية (اللوق ومراقبة خروج البوت)
+// معالجة تغييرات الرومات الصوتية
 client.on('voiceStateUpdate', (oldState, newState) => {
     // إذا كان الحدث يخص البوت نفسه
     if (newState.member?.id === client.user?.id) {
+        // إذا خرج البوت من الروم أو تم فصله يدويًا
         if (!newState.channelId || newState.channelId !== TARGET_VOICE_CHANNEL_ID) {
+            if (currentVoiceConnection) {
+                try { currentVoiceConnection.destroy(); } catch (_) {}
+                currentVoiceConnection = null;
+            }
+            // إعادة الدخول الفوري خلال ثانية واحدة فقط
             setTimeout(() => {
                 ensureVoiceConnection();
-            }, 3000);
+            }, 1000);
         }
         return;
     }
