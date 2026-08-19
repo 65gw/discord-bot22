@@ -203,70 +203,35 @@ client.on('interactionCreate', async (interaction) => {
 
             const data = result.result;
 
-            // استخراج روابط الفيديو المباشرة حصراً وتجاهل صور الغلاف (Thumbnails / Avatars)
-            const videoUrls: string[] = [];
-            
-            const extractVideos = (obj: any, keyName: string = '') => {
-                if (!obj) return;
-                // استبعاد مفاتيح صور الغلاف والصور التعريفية
-                if (keyName.toLowerCase().includes('cover') || keyName.toLowerCase().includes('avatar') || keyName.toLowerCase().includes('dynamic')) {
-                    return;
-                }
-
-                if (typeof obj === 'string' && obj.startsWith('http')) {
-                    // الاستبعاد حسب الامتداد للتأكد أنه ليس ملف صورة
-                    if (!obj.includes('.jpeg') && !obj.includes('.jpg') && !obj.includes('.png') && !obj.includes('.webp')) {
-                        videoUrls.push(obj);
-                    }
-                } else if (Array.isArray(obj)) {
-                    obj.forEach(item => extractVideos(item, keyName));
-                } else if (typeof obj === 'object') {
-                    for (const key in obj) {
-                        extractVideos(obj[key], key);
-                    }
-                }
-            };
-
-            extractVideos(data);
-
-            const uniqueVideoUrls = [...new Set(videoUrls)];
-
-            if (uniqueVideoUrls.length === 0) {
-                throw new Error('تعذر العثور على رابط فيديو صريح (قد يكون المنشور عبارة عن صور فقط).');
+            // تحديد الروابط بدقة واستخراج أولوية رابط الفيديو بدون علامة مائية
+            let directUrl: string | null = null;
+            if (data.video && typeof data.video === 'string') {
+                directUrl = data.video;
+            } else if (data.video && Array.isArray(data.video) && data.video.length > 0) {
+                directUrl = data.video[0];
+            } else if (data.noWatermark) {
+                directUrl = typeof data.noWatermark === 'string' ? data.noWatermark : data.noWatermark[0];
+            } else if (data.watermark) {
+                directUrl = typeof data.watermark === 'string' ? data.watermark : data.watermark[0];
             }
 
-            // المرحلة 2: تنزيل ملف الفيديو والتأكد من الحجم
-            let videoBuffer: Buffer | null = null;
-            let lastErrorMsg = '';
-
-            for (const targetUrl of uniqueVideoUrls) {
-                try {
-                    const response = await axios.get(targetUrl, {
-                        responseType: 'arraybuffer',
-                        headers: {
-                            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
-                            'Accept': '*/*',
-                            'Referer': 'https://www.tiktok.com/'
-                        },
-                        timeout: 25000
-                    });
-
-                    // اشتراط أن يتجاوز الحجم 100KB للتأكد من أنه ملف فيديو حقيقي وليس ملف صورة صغيرة
-                    if (response.data && response.data.byteLength > 100000) {
-                        videoBuffer = Buffer.from(response.data);
-                        break;
-                    }
-                } catch (err: any) {
-                    lastErrorMsg = err?.response?.status ? `HTTP ${err.response.status}` : err?.message || 'Unknown Error';
-                    continue;
-                }
+            if (!directUrl) {
+                throw new Error('تعذر تحديد رابط مباشر للمقطع.');
             }
 
-            if (!videoBuffer) {
-                throw new Error(`تعذر تنزيل الفيديو (${lastErrorMsg}).`);
-            }
+            // المرحلة 2: تنزيل الفيديو كـ Buffer
+            const response = await axios.get(directUrl, {
+                responseType: 'arraybuffer',
+                headers: {
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+                    'Referer': 'https://www.tiktok.com/'
+                },
+                timeout: 25000
+            });
 
-            // المرحلة 3: التحقق من الحجم لمطابقة حد ديسكورد (25MB)
+            const videoBuffer = Buffer.from(response.data);
+
+            // المرحلة 3: التحقق من الحجم
             const sizeInMB = (videoBuffer.length / (1024 * 1024)).toFixed(2);
             if (videoBuffer.length > 25 * 1024 * 1024) {
                 await interaction.editReply({ 
@@ -275,7 +240,11 @@ client.on('interactionCreate', async (interaction) => {
                 return;
             }
 
-            const attachment = new AttachmentBuilder(videoBuffer, { name: 'tiktok-video.mp4' });
+            // إرفاق الملف كـ video/mp4 صريح لإظهار المشغل المدمج
+            const attachment = new AttachmentBuilder(videoBuffer, { 
+                name: 'tiktok-video.mp4',
+                description: 'TikTok Video'
+            });
 
             // المرحلة 4: الإرسال المباشر
             await interaction.editReply({
