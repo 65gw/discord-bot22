@@ -157,83 +157,166 @@ async function playTextToSpeech(text: string) {
 }
 
 // ==========================================
-// دالة تجربة تنزيل المقطع عبر محركات متعددة لتفادي 403
+// دالة التحميل بـ 5 خطط متتالية للتغلب على حظر 403
 // ==========================================
-async function fetchTikTokBuffer(targetUrl: string): Promise<Buffer> {
-    const userAgent = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36';
+async function fetchTikTokWith5Plans(targetUrl: string): Promise<Buffer> {
+    const defaultUA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36';
 
-    // المصدر الأول: Cobalt API (أفضل محرك لتجاوز الحظر)
+    // 🔴 الخطة 1: Tikwm API (عبر خادم HD Proxy لتجاوز الحظر المباشر)
     try {
-        const cobaltRes = await axios.post('https://api.cobalt.tools/api/json', {
+        console.log('🔄 جاري تجربة الخطة (1) - Tikwm Proxy...');
+        const res1 = await axios.get(`https://www.tikwm.com/api/?url=${encodeURIComponent(targetUrl)}&hd=1`, {
+            headers: { 'User-Agent': defaultUA },
+            timeout: 10000
+        });
+
+        if (res1.data && res1.data.code === 0 && res1.data.data) {
+            const videoData = res1.data.data;
+            const playUrl = videoData.hdplay || videoData.play || videoData.wmplay;
+            const fullUrl = playUrl.startsWith('http') ? playUrl : `https://www.tikwm.com${playUrl}`;
+
+            const fileRes = await axios.get(fullUrl, {
+                responseType: 'arraybuffer',
+                headers: {
+                    'User-Agent': defaultUA,
+                    'Referer': 'https://www.tikwm.com/',
+                    'Accept': '*/*'
+                },
+                timeout: 15000
+            });
+
+            if (fileRes.data && fileRes.data.byteLength > 50000) {
+                console.log('✅ نجحت الخطة (1)');
+                return Buffer.from(fileRes.data);
+            }
+        }
+    } catch (err: any) {
+        console.log(`⚠️ فشلت الخطة (1): ${err.message || 'Error'}`);
+    }
+
+    // 🔴 الخطة 2: Tiklydown API (محرك تنزيل مستقل)
+    try {
+        console.log('🔄 جاري تجربة الخطة (2) - Tiklydown...');
+        const res2 = await axios.get(`https://api.tiklydown.eu.org/api/download?url=${encodeURIComponent(targetUrl)}`, {
+            headers: { 'User-Agent': defaultUA },
+            timeout: 10000
+        });
+
+        if (res2.data && res2.data.video && res2.data.video.noWatermark) {
+            const videoUrl = res2.data.video.noWatermark;
+            const fileRes = await axios.get(videoUrl, {
+                responseType: 'arraybuffer',
+                headers: { 'User-Agent': defaultUA },
+                timeout: 15000
+            });
+
+            if (fileRes.data && fileRes.data.byteLength > 50000) {
+                console.log('✅ نجحت الخطة (2)');
+                return Buffer.from(fileRes.data);
+            }
+        }
+    } catch (err: any) {
+        console.log(`⚠️ فشلت الخطة (2): ${err.message || 'Error'}`);
+    }
+
+    // 🔴 الخطة 3: Cobalt API Public Instances
+    try {
+        console.log('🔄 جاري تجربة الخطة (3) - Cobalt Engine...');
+        const res3 = await axios.post('https://api.cobalt.tools/api/json', {
             url: targetUrl,
-            videoQuality: '720'
+            videoQuality: '720',
+            filenamePattern: 'basic'
         }, {
             headers: {
                 'Accept': 'application/json',
                 'Content-Type': 'application/json',
-                'User-Agent': userAgent
+                'User-Agent': defaultUA
+            },
+            timeout: 12000
+        });
+
+        if (res3.data && res3.data.url) {
+            const fileRes = await axios.get(res3.data.url, {
+                responseType: 'arraybuffer',
+                headers: { 'User-Agent': defaultUA },
+                timeout: 15000
+            });
+
+            if (fileRes.data && fileRes.data.byteLength > 50000) {
+                console.log('✅ نجحت الخطة (3)');
+                return Buffer.from(fileRes.data);
+            }
+        }
+    } catch (err: any) {
+        console.log(`⚠️ فشلت الخطة (3): ${err.message || 'Error'}`);
+    }
+
+    // 🔴 الخطة 4: SSSTik Scraping Engine
+    try {
+        console.log('🔄 جاري تجربة الخطة (4) - SSSTik Direct...');
+        const postData = new URLSearchParams();
+        postData.append('id', targetUrl);
+        postData.append('locale', 'en');
+        postData.append('tt', 'RFBzS3A1');
+
+        const res4 = await axios.post('https://ssstik.io/abc?url=dl', postData, {
+            headers: {
+                'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
+                'User-Agent': defaultUA,
+                'Hx-Request': 'true',
+                'Hx-Target': 'target'
             },
             timeout: 10000
         });
 
-        if (cobaltRes.data && cobaltRes.data.url) {
-            const streamRes = await axios.get(cobaltRes.data.url, {
+        const html = res4.data || '';
+        const match = html.match(/href="(https:\/\/[^"]+)"[^>]*class="[^"]*download_link/);
+        
+        if (match && match[1]) {
+            const directLink = match[1];
+            const fileRes = await axios.get(directLink, {
                 responseType: 'arraybuffer',
-                timeout: 20000
-            });
-            if (streamRes.data && streamRes.data.byteLength > 50000) {
-                return Buffer.from(streamRes.data);
-            }
-        }
-    } catch (e) {
-        console.log('Cobalt engine failed, trying Tikwm fallback...');
-    }
-
-    // المصدر الثاني: Tikwm المباشر
-    try {
-        const tikwmRes = await axios.get(`https://www.tikwm.com/api/?url=${encodeURIComponent(targetUrl)}`, {
-            headers: { 'User-Agent': userAgent },
-            timeout: 10000
-        });
-
-        if (tikwmRes.data && tikwmRes.data.code === 0 && tikwmRes.data.data) {
-            const videoData = tikwmRes.data.data;
-            const playUrl = videoData.play.startsWith('http') ? videoData.play : `https://www.tikwm.com${videoData.play}`;
-
-            const fileRes = await axios.get(playUrl, {
-                responseType: 'arraybuffer',
-                headers: {
-                    'User-Agent': userAgent,
-                    'Referer': 'https://www.tikwm.com/'
+                headers: { 
+                    'User-Agent': defaultUA,
+                    'Referer': 'https://ssstik.io/'
                 },
-                timeout: 20000
+                timeout: 15000
             });
 
             if (fileRes.data && fileRes.data.byteLength > 50000) {
+                console.log('✅ نجحت الخطة (4)');
                 return Buffer.from(fileRes.data);
             }
         }
-    } catch (e) {
-        console.log('Tikwm engine failed, trying Loli API fallback...');
+    } catch (err: any) {
+        console.log(`⚠️ فشلت الخطة (4): ${err.message || 'Error'}`);
     }
 
-    // المصدر الثالث: Loli TikTok API
-    const loliRes = await axios.get(`https://api.lolihuman.xyz/api/tiktok?apikey=free&url=${encodeURIComponent(targetUrl)}`, {
-        headers: { 'User-Agent': userAgent },
-        timeout: 10000
-    }).catch(() => null);
-
-    if (loliRes?.data?.result?.link) {
-        const loliBuffer = await axios.get(loliRes.data.result.link, {
-            responseType: 'arraybuffer',
-            timeout: 20000
+    // 🔴 الخطة 5: Loli TikTok API Fallback
+    try {
+        console.log('🔄 جاري تجربة الخطة (5) - Loli Fallback...');
+        const res5 = await axios.get(`https://api.lolihuman.xyz/api/tiktok?apikey=free&url=${encodeURIComponent(targetUrl)}`, {
+            headers: { 'User-Agent': defaultUA },
+            timeout: 10000
         });
-        if (loliBuffer.data && loliBuffer.data.byteLength > 50000) {
-            return Buffer.from(loliBuffer.data);
+
+        if (res5.data && res5.data.result && res5.data.result.link) {
+            const fileRes = await axios.get(res5.data.result.link, {
+                responseType: 'arraybuffer',
+                headers: { 'User-Agent': defaultUA },
+                timeout: 15000
+            });
+
+            if (fileRes.data && fileRes.data.byteLength > 50000) {
+                console.log('✅ نجحت الخطة (5)');
+                return Buffer.from(fileRes.data);
+            }
         }
+    } catch (err: any) {
+        console.log(`⚠️ فشلت الخطة (5): ${err.message || 'Error'}`);
     }
 
-    throw new Error('جميع السيرفرات رفضت التنزيل حالياً بسبب حظر الحماية (403). حاول مجدداً بعد قليل.');
+    throw new Error('فشلت جميع الخطط الخمسة في تنزيل المقطع. قد يكون المقطع خاصاً أو محظوراً.');
 }
 
 // ==========================================
@@ -262,12 +345,13 @@ client.on('interactionCreate', async (interaction) => {
         const url = interaction.options.getString('url', true);
 
         try {
-            const videoBuffer = await fetchTikTokBuffer(url);
+            // استدعاء دالة الخطط الخمسة
+            const videoBuffer = await fetchTikTokWith5Plans(url);
 
             const sizeInMB = (videoBuffer.length / (1024 * 1024)).toFixed(2);
             if (videoBuffer.length > 25 * 1024 * 1024) {
                 await interaction.editReply({ 
-                    content: `⚠️ حجم المقطع كبير جداً (${sizeInMB}MB) ويتجاوز حد ديسكورد (25MB).` 
+                    content: `⚠️ حجم المقطع كبير جداً (${sizeInMB}MB) ويتجاوز حد رفع المرفقات في ديسكورد (25MB).` 
                 });
                 return;
             }
