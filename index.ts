@@ -181,32 +181,42 @@ client.on('interactionCreate', async (interaction) => {
         const url = interaction.options.getString('url', true);
 
         try {
-            const response = await axios.post('https://api.cobalt.tools/api/json', {
-                url: url,
-                vQuality: '720',
-                filenamePattern: 'basic'
-            }, {
-                headers: {
-                    'Accept': 'application/json',
-                    'Content-Type': 'application/json',
-                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
-                }
+            // محاولة التحميل باستخدام محرك شبكي متعدد الروابط متوافق مع سيرفرات Render
+            const apiRes = await axios.get(`https://api.vreden.web.id/api/download/allinone?url=${encodeURIComponent(url)}`, {
+                timeout: 15000
             });
 
-            const streamUrl = response.data?.url || response.data?.picker?.[0]?.url;
+            const result = apiRes.data?.result;
+            const videoUrl = result?.url || result?.video || result?.downloads?.[0]?.url;
 
-            if (streamUrl) {
+            if (videoUrl) {
                 await interaction.editReply({
-                    content: `🎬 **تم استخراج المقطع بنجاح:**\n${streamUrl}`
+                    content: `🎬 **تم استخراج المقطع بنجاح:**\n${videoUrl}`
                 });
             } else {
-                throw new Error('No valid URL returned');
+                // محاولة احتياطية ثانية في حال فشل المحرك الأول
+                const backupRes = await axios.post('https://co.wuk.sh/api/json', {
+                    url: url
+                }, {
+                    headers: {
+                        'Accept': 'application/json',
+                        'Content-Type': 'application/json'
+                    }
+                });
+
+                if (backupRes.data?.url) {
+                    await interaction.editReply({
+                        content: `🎬 **تم استخراج المقطع بنجاح:**\n${backupRes.data.url}`
+                    });
+                } else {
+                    throw new Error('لم يتم العثور على رابط صالح');
+                }
             }
 
         } catch (error: any) {
-            console.error('Download error details:', error?.response?.data || error);
+            console.error('Download error details:', error?.message || error);
             await interaction.editReply({
-                content: '❌ تعذر استخراج المقطع. قد يكون الرابط خاصاً، غير مدعوم، أو تتطلب المنصة تسجيل دخول.'
+                content: '❌ تعذر استخراج المقطع. تأكد من أن الرابط مباشر وعام (ليس حساباً خاصاً).'
             });
         }
     }
