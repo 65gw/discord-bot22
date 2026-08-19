@@ -6,7 +6,8 @@ import {
     SlashCommandBuilder, 
     TextChannel,
     EmbedBuilder,
-    MessageFlags
+    MessageFlags,
+    AttachmentBuilder
 } from 'discord.js';
 import { 
     joinVoiceChannel, 
@@ -17,6 +18,7 @@ import {
     entersState
 } from '@discordjs/voice';
 import http from 'http';
+import play from 'play-dl';
 
 const BOT_TOKEN = process.env.DISCORD_BOT_TOKEN || '';
 const CLIENT_ID = process.env.DISCORD_CLIENT_ID || '';
@@ -38,6 +40,9 @@ let isChatRespondingEnabled = true;
 let isAutoTopicsEnabled = true;
 let isVoiceResponseEnabled = true;
 
+// ==========================================
+// 1. تسجيل الأوامر بما فيها أمر /download
+// ==========================================
 const commands = [
     new SlashCommandBuilder()
         .setName('chat-toggle')
@@ -56,6 +61,13 @@ const commands = [
                 .setDescription('النص المراد نطقه')
                 .setRequired(true)),
     new SlashCommandBuilder()
+        .setName('download')
+        .setDescription('تحميل مقطع فيديو من الرابط')
+        .addStringOption(option =>
+            option.setName('url')
+                .setDescription('رابط المقطع (YouTube / TikTok / etc.)')
+                .setRequired(true)),
+    new SlashCommandBuilder()
         .setName('status')
         .setDescription('عرض حالة إعدادات البوت الحالية')
 ].map(command => command.toJSON());
@@ -65,7 +77,7 @@ async function registerCommands() {
         if (!BOT_TOKEN || !CLIENT_ID) return;
         const rest = new REST({ version: '10' }).setToken(BOT_TOKEN);
         await rest.put(Routes.applicationCommands(CLIENT_ID), { body: commands });
-        console.log('✅ تم تسجيل أوامر Slash بنجاح.');
+        console.log('✅ تم تسجيل جميع أوامر Slash بنجاح.');
     } catch (error) {
         console.error('❌ خطأ في تسجيل الأوامر:', error);
     }
@@ -85,16 +97,10 @@ async function sendLogEmbed(embed: EmbedBuilder) {
 
 async function joinAndKeepVoice() {
     try {
-        if (!TARGET_VOICE_CHANNEL_ID) {
-            console.log('⚠️ لم يتم تحديد TARGET_VOICE_CHANNEL_ID في المتغيرات البيئية.');
-            return null;
-        }
+        if (!TARGET_VOICE_CHANNEL_ID) return null;
 
         const voiceChannel = await client.channels.fetch(TARGET_VOICE_CHANNEL_ID).catch(() => null);
-        if (!voiceChannel || !voiceChannel.isVoiceBased()) {
-            console.log('⚠️ الروم الصوتي غير موجود أو الأيدي غير صحيح.');
-            return null;
-        }
+        if (!voiceChannel || !voiceChannel.isVoiceBased()) return null;
 
         const guild = voiceChannel.guild;
         const existingConnection = getVoiceConnection(guild.id);
@@ -127,9 +133,7 @@ async function joinAndKeepVoice() {
             }
         });
 
-        console.log('🟢 تم الاتصال بالروم الصوتي بنجاح.');
         return connection;
-
     } catch (error) {
         console.error('❌ خطأ أثناء الانضمام للروم الصوتي:', error);
         return null;
@@ -149,16 +153,17 @@ async function playTextToSpeech(text: string) {
     }
 }
 
+// ==========================================
+// 2. الأحداث والتفاعل مع الأوامر
+// ==========================================
 client.once('ready', async () => {
     console.log(`🤖 تم تسجيل الدخول كـ ${client.user?.tag}`);
     await registerCommands();
     
-    // الانتظار 3 ثوانٍ حتى تكتمل جاهزية الكاش بالكامل
     setTimeout(async () => {
         await joinAndKeepVoice();
     }, 3000);
 
-    // التحقق الدوري كل 15 ثانية لإبقاء البوت بالروم متصلاً
     setInterval(async () => {
         await joinAndKeepVoice();
     }, 15000);
@@ -169,7 +174,28 @@ client.on('interactionCreate', async (interaction) => {
 
     const { commandName } = interaction;
 
-    if (commandName === 'chat-toggle') {
+    if (commandName === 'download') {
+        // تأجيل الرد فوراً لتفادي خطأ "The application did not respond"
+        await interaction.deferReply();
+
+        const url = interaction.options.getString('url', true);
+
+        try {
+            const streamInfo = await play.stream(url);
+            const attachment = new AttachmentBuilder(streamInfo.stream, { name: 'video.mp4' });
+
+            await interaction.editReply({
+                content: '🎬 تم تحميل المقطع بنجاح:',
+                files: [attachment]
+            });
+        } catch (error) {
+            console.error('Download error:', error);
+            await interaction.editReply({
+                content: '❌ تعذر تحميل المقطع. تأكد من أن الرابط مباشر وصحيح وأن حجم المقطع يتوافق مع حدود الديسكورد.'
+            });
+        }
+    }
+    else if (commandName === 'chat-toggle') {
         isChatRespondingEnabled = !isChatRespondingEnabled;
         await interaction.reply({ 
             content: `تم ${isChatRespondingEnabled ? '🟢 تفعيل' : '🔴 تعطيل'} ردود الشات التلقائية.`, 
