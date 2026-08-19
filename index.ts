@@ -159,6 +159,37 @@ async function playTextToSpeech(text: string) {
     }
 }
 
+// دالة مساعدة للبحث المتقدم عن أول رابط هاتف/فيديو صريح داخل أي كائن
+function extractFirstMediaUrl(obj: any): string | null {
+    if (!obj) return null;
+    if (typeof obj === 'string' && (obj.startsWith('http://') || obj.startsWith('https://'))) {
+        return obj;
+    }
+    if (Array.isArray(obj)) {
+        for (const item of obj) {
+            const found = extractFirstMediaUrl(item);
+            if (found) return found;
+        }
+    } else if (typeof obj === 'object') {
+        // تفضيل المفاتيح الشائعة أولاً
+        const priorityKeys = ['noWatermark', 'watermark', 'url', 'video', 'play', 'downloadAddr'];
+        for (const key of priorityKeys) {
+            if (obj[key]) {
+                const found = extractFirstMediaUrl(obj[key]);
+                if (found) return found;
+            }
+        }
+        // البحث في باقي الخصائص
+        for (const key in obj) {
+            if (Object.prototype.hasOwnProperty.call(obj, key)) {
+                const found = extractFirstMediaUrl(obj[key]);
+                if (found) return found;
+            }
+        }
+    }
+    return null;
+}
+
 // ==========================================
 // 3. الأحداث والتفاعل مع الأوامر
 // ==========================================
@@ -185,32 +216,31 @@ client.on('interactionCreate', async (interaction) => {
         const url = interaction.options.getString('url', true);
 
         try {
-            // المرحلة 1: استخراج بيانات المقطع من TikTok
+            // المرحلة 1: استخراج بيانات المقطع عبر Downloader
             let result;
             try {
                 result = await tiktok.Downloader(url, { version: 'v1' });
             } catch (err: any) {
-                throw new Error(`فشل الاتصال بـ TikTok API: ${err?.message || 'خطأ غير معروف'}`);
+                // تجربة النسخة V2 في حال فشل V1
+                try {
+                    result = await tiktok.Downloader(url, { version: 'v2' });
+                } catch (errV2: any) {
+                    throw new Error(`فشل الاتصال بـ TikTok API: ${err?.message || 'خطأ في الاستجابة'}`);
+                }
             }
 
             if (!result || result.status !== 'success' || !result.result) {
                 throw new Error('لم يتم العثور على المقطع. تأكد من صحة الرابط أو الحساب.');
             }
 
-            // استخراج رابط الفيديو كـ String صريح لتفادي خطأ Invalid URL
-            let videoUrlRaw = result.result.video;
-            let videoUrl: string = '';
+            // طباعة الاستجابة في الكونسول لتسهيل التتبع
+            console.log('TikTok Result Data:', JSON.stringify(result.result, null, 2));
 
-            if (typeof videoUrlRaw === 'string') {
-                videoUrl = videoUrlRaw;
-            } else if (Array.isArray(videoUrlRaw) && videoUrlRaw.length > 0) {
-                videoUrl = typeof videoUrlRaw[0] === 'string' ? videoUrlRaw[0] : (videoUrlRaw[0]?.url || '');
-            } else if (typeof videoUrlRaw === 'object' && videoUrlRaw !== null) {
-                videoUrl = videoUrlRaw.url || videoUrlRaw.noWatermark || videoUrlRaw.watermark || Object.values(videoUrlRaw).find(val => typeof val === 'string') as string || '';
-            }
+            // البحث الشامل عن رابط المقطع
+            const videoUrl = extractFirstMediaUrl(result.result);
 
-            if (!videoUrl || typeof videoUrl !== 'string' || !videoUrl.startsWith('http')) {
-                throw new Error('تعذر استخراج رابط تحميل مباشر كـ String صريح من الاستجابة.');
+            if (!videoUrl) {
+                throw new Error('تعذر العثور على رابط تحميل مباشر للمقطع.');
             }
 
             // المرحلة 2: تنزيل ملف الفيديو كـ Buffer
@@ -225,12 +255,12 @@ client.on('interactionCreate', async (interaction) => {
                     timeout: 25000
                 });
             } catch (err: any) {
-                throw new Error(`فشل تنزيل ملف الفيديو من سيرفر TikTok (HTTP ${err?.response?.status || 'Timeout'}): ${err?.message}`);
+                throw new Error(`فشل تنزيل ملف الفيديو من السيرفر (HTTP ${err?.response?.status || 'Timeout'}): ${err?.message}`);
             }
 
             const buffer = Buffer.from(videoBuffer.data);
 
-            // المرحلة 3: التحقق من الحجم لمطابقة ديسكورد (25MB)
+            // المرحلة 3: التحقق من الحجم لمطابقة حد ديسكورد (25MB)
             const sizeInMB = (buffer.length / (1024 * 1024)).toFixed(2);
             if (buffer.length > 25 * 1024 * 1024) {
                 await interaction.editReply({ 
