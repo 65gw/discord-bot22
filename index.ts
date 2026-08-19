@@ -13,8 +13,7 @@ import {
     createAudioPlayer, 
     createAudioResource, 
     VoiceConnectionStatus, 
-    getVoiceConnection,
-    AudioPlayerStatus
+    getVoiceConnection
 } from '@discordjs/voice';
 
 // ==========================================
@@ -67,6 +66,7 @@ const commands = [
 
 async function registerCommands() {
     try {
+        if (!BOT_TOKEN || !CLIENT_ID) return;
         const rest = new REST({ version: '10' }).setToken(BOT_TOKEN);
         await rest.put(Routes.applicationCommands(CLIENT_ID), { body: commands });
         console.log('✅ تم تسجيل أوامر Slash بنجاح.');
@@ -95,17 +95,18 @@ async function sendLogEmbed(embed: EmbedBuilder) {
 // ==========================================
 function joinAndKeepVoice() {
     try {
+        if (!TARGET_VOICE_CHANNEL_ID) return null;
+        
         const guild = client.guilds.cache.first();
-        if (!guild) return;
+        if (!guild) return null;
 
-        // إذا كان البوت متصلاً بالفعل بالروم المحددة، لا تفعل شيئاً
         const existingConnection = getVoiceConnection(guild.id);
         if (existingConnection && existingConnection.joinConfig.channelId === TARGET_VOICE_CHANNEL_ID) {
             return existingConnection;
         }
 
         const voiceChannel = guild.channels.cache.get(TARGET_VOICE_CHANNEL_ID);
-        if (!voiceChannel || !voiceChannel.isVoiceBased()) return;
+        if (!voiceChannel || !voiceChannel.isVoiceBased()) return null;
 
         const connection = joinVoiceChannel({
             channelId: TARGET_VOICE_CHANNEL_ID,
@@ -117,7 +118,6 @@ function joinAndKeepVoice() {
 
         connection.subscribe(audioPlayer);
 
-        // مراقبة الاتصال للتسجيل فقط دون تدمير الاتصال تلقائياً
         connection.on(VoiceConnectionStatus.Ready, () => {
             console.log('🟢 البوت متصل ومستقر في الروم الصوتي.');
         });
@@ -125,6 +125,7 @@ function joinAndKeepVoice() {
         return connection;
     } catch (error) {
         console.error('❌ خطأ في الاتصال الصوتي:', error);
+        return null;
     }
 }
 
@@ -148,16 +149,13 @@ client.once('ready', async () => {
     console.log(`🤖 تم تسجيل الدخول كـ ${client.user?.tag}`);
     await registerCommands();
     
-    // الدخول للروم الصوتي فور تشغيل البوت
     joinAndKeepVoice();
 
-    // فحص دوري كل 30 ثانية لتأكيد وجود البوت داخل الروم وعدم خروجه
     setInterval(() => {
         joinAndKeepVoice();
     }, 30_000);
 });
 
-// معالجة تفاعلات الـ Slash Commands
 client.on('interactionCreate', async (interaction) => {
     if (!interaction.isChatInputCommand()) return;
 
@@ -199,9 +197,7 @@ client.on('interactionCreate', async (interaction) => {
     }
 });
 
-// مراقبة الروم الصوتي وسجلات الأعضاء
 client.on('voiceStateUpdate', (oldState, newState) => {
-    // إذا كُسر الاتصال أو طُرد البوت، يُعيد الدخول بعد 2 ثانية
     if (newState.member?.id === client.user?.id) {
         if (!newState.channelId || newState.channelId !== TARGET_VOICE_CHANNEL_ID) {
             setTimeout(() => {
@@ -211,7 +207,6 @@ client.on('voiceStateUpdate', (oldState, newState) => {
         return;
     }
 
-    // سجلات باقي الأعضاء
     const member = newState.member || oldState.member;
     if (!member || member.user.bot) return;
 
@@ -251,5 +246,4 @@ client.on('voiceStateUpdate', (oldState, newState) => {
     }
 });
 
-// تشغيل البوت
 client.login(BOT_TOKEN);
