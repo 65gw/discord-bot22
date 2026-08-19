@@ -20,7 +20,7 @@ import {
 import http from 'http';
 import axios from 'axios';
 
-// استدعاء المكتبة
+// استدعاء المكتبة بنمط CommonJS لتفادي خطأ TS2305
 const tiktok = require('@tobyg74/tiktok-api-dl');
 
 const BOT_TOKEN = process.env.DISCORD_BOT_TOKEN || '';
@@ -159,37 +159,6 @@ async function playTextToSpeech(text: string) {
     }
 }
 
-// دالة مساعدة للبحث المتقدم عن أول رابط هاتف/فيديو صريح داخل أي كائن
-function extractFirstMediaUrl(obj: any): string | null {
-    if (!obj) return null;
-    if (typeof obj === 'string' && (obj.startsWith('http://') || obj.startsWith('https://'))) {
-        return obj;
-    }
-    if (Array.isArray(obj)) {
-        for (const item of obj) {
-            const found = extractFirstMediaUrl(item);
-            if (found) return found;
-        }
-    } else if (typeof obj === 'object') {
-        // تفضيل المفاتيح الشائعة أولاً
-        const priorityKeys = ['noWatermark', 'watermark', 'url', 'video', 'play', 'downloadAddr'];
-        for (const key of priorityKeys) {
-            if (obj[key]) {
-                const found = extractFirstMediaUrl(obj[key]);
-                if (found) return found;
-            }
-        }
-        // البحث في باقي الخصائص
-        for (const key in obj) {
-            if (Object.prototype.hasOwnProperty.call(obj, key)) {
-                const found = extractFirstMediaUrl(obj[key]);
-                if (found) return found;
-            }
-        }
-    }
-    return null;
-}
-
 // ==========================================
 // 3. الأحداث والتفاعل مع الأوامر
 // ==========================================
@@ -221,7 +190,6 @@ client.on('interactionCreate', async (interaction) => {
             try {
                 result = await tiktok.Downloader(url, { version: 'v1' });
             } catch (err: any) {
-                // تجربة النسخة V2 في حال فشل V1
                 try {
                     result = await tiktok.Downloader(url, { version: 'v2' });
                 } catch (errV2: any) {
@@ -233,43 +201,73 @@ client.on('interactionCreate', async (interaction) => {
                 throw new Error('لم يتم العثور على المقطع. تأكد من صحة الرابط أو الحساب.');
             }
 
-            // طباعة الاستجابة في الكونسول لتسهيل التتبع
-            console.log('TikTok Result Data:', JSON.stringify(result.result, null, 2));
+            // جمع كافة الروابط المتاحة للمقطع كقائمة خيارات بديلة لتجنب حظر 403
+            const candidateUrls: string[] = [];
+            
+            const extractAllUrls = (obj: any) => {
+                if (!obj) return;
+                if (typeof obj === 'string' && obj.startsWith('http')) {
+                    candidateUrls.push(obj);
+                } else if (Array.isArray(obj)) {
+                    obj.forEach(extractAllUrls);
+                } else if (typeof obj === 'object') {
+                    for (const key in obj) {
+                        extractAllUrls(obj[key]);
+                    }
+                }
+            };
 
-            // البحث الشامل عن رابط المقطع
-            const videoUrl = extractFirstMediaUrl(result.result);
+            extractAllUrls(result.result);
 
-            if (!videoUrl) {
-                throw new Error('تعذر العثور على رابط تحميل مباشر للمقطع.');
+            if (candidateUrls.length === 0) {
+                throw new Error('تعذر العثور على أي رابط تحميل مباشر للمقطع.');
             }
 
-            // المرحلة 2: تنزيل ملف الفيديو كـ Buffer
-            let videoBuffer;
-            try {
-                videoBuffer = await axios.get(videoUrl, {
-                    responseType: 'arraybuffer',
-                    headers: {
-                        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-                        'Referer': 'https://www.tiktok.com/'
-                    },
-                    timeout: 25000
-                });
-            } catch (err: any) {
-                throw new Error(`فشل تنزيل ملف الفيديو من السيرفر (HTTP ${err?.response?.status || 'Timeout'}): ${err?.message}`);
+            // إزالة التكرار من قائمة الروابط
+            const uniqueUrls = [...new Set(candidateUrls)];
+
+            // المرحلة 2: محاولة التنزيل المباشر بطلب محاكي للمتصفح عبر الروابط البديلة
+            let videoBuffer: Buffer | null = null;
+            let lastErrorMsg = '';
+
+            for (const targetUrl of uniqueUrls) {
+                try {
+                    const response = await axios.get(targetUrl, {
+                        responseType: 'arraybuffer',
+                        headers: {
+                            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+                            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
+                            'Accept-Language': 'en-US,en;q=0.9',
+                            'Referer': 'https://www.tiktok.com/',
+                            'Range': 'bytes=0-'
+                        },
+                        timeout: 20000
+                    });
+
+                    if (response.data && response.data.byteLength > 0) {
+                        videoBuffer = Buffer.from(response.data);
+                        break; // نجاح التحميل
+                    }
+                } catch (err: any) {
+                    lastErrorMsg = err?.response?.status ? `HTTP ${err.response.status}` : err?.message || 'Unknown Error';
+                    continue; // تجربة الرابط التالي فوراً في حال ظهور 403 أو خطأ في السيرفر الأول
+                }
             }
 
-            const buffer = Buffer.from(videoBuffer.data);
+            if (!videoBuffer) {
+                throw new Error(`فشل تنزيل ملف الفيديو من السيرفرات المتاحة (${lastErrorMsg}). قد يكون السيرفر قام بحظر الطلبات المؤقتة (Rate Limit).`);
+            }
 
             // المرحلة 3: التحقق من الحجم لمطابقة حد ديسكورد (25MB)
-            const sizeInMB = (buffer.length / (1024 * 1024)).toFixed(2);
-            if (buffer.length > 25 * 1024 * 1024) {
+            const sizeInMB = (videoBuffer.length / (1024 * 1024)).toFixed(2);
+            if (videoBuffer.length > 25 * 1024 * 1024) {
                 await interaction.editReply({ 
                     content: `⚠️ حجم المقطع كبير جداً (${sizeInMB}MB) ويتجاوز حد رفع المرفقات في ديسكورد (25MB).` 
                 });
                 return;
             }
 
-            const attachment = new AttachmentBuilder(buffer, { name: 'tiktok-video.mp4' });
+            const attachment = new AttachmentBuilder(videoBuffer, { name: 'tiktok-video.mp4' });
 
             // المرحلة 4: الإرسال المباشر
             await interaction.editReply({
