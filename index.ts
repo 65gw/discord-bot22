@@ -19,6 +19,7 @@ import {
 } from '@discordjs/voice';
 import http from 'http';
 import play from 'play-dl';
+import ytdl from '@distube/ytdl-core';
 
 const BOT_TOKEN = process.env.DISCORD_BOT_TOKEN || '';
 const CLIENT_ID = process.env.DISCORD_CLIENT_ID || '';
@@ -41,7 +42,7 @@ let isAutoTopicsEnabled = true;
 let isVoiceResponseEnabled = true;
 
 // ==========================================
-// 1. تسجيل الأوامر بما فيها أمر /download
+// 1. تسجيل الأوامر (Slash Commands)
 // ==========================================
 const commands = [
     new SlashCommandBuilder()
@@ -65,7 +66,7 @@ const commands = [
         .setDescription('تحميل مقطع فيديو من الرابط')
         .addStringOption(option =>
             option.setName('url')
-                .setDescription('رابط المقطع (YouTube / TikTok / etc.)')
+                .setDescription('رابط المقطع (YouTube / TikTok / إلخ)')
                 .setRequired(true)),
     new SlashCommandBuilder()
         .setName('status')
@@ -77,7 +78,7 @@ async function registerCommands() {
         if (!BOT_TOKEN || !CLIENT_ID) return;
         const rest = new REST({ version: '10' }).setToken(BOT_TOKEN);
         await rest.put(Routes.applicationCommands(CLIENT_ID), { body: commands });
-        console.log('✅ تم تسجيل جميع أوامر Slash بنجاح.');
+        console.log('✅ تم تسجيل أوامر Slash بنجاح.');
     } catch (error) {
         console.error('❌ خطأ في تسجيل الأوامر:', error);
     }
@@ -95,6 +96,9 @@ async function sendLogEmbed(embed: EmbedBuilder) {
     }
 }
 
+// ==========================================
+// 2. إدارة الاتصال الصوتي المستمر
+// ==========================================
 async function joinAndKeepVoice() {
     try {
         if (!TARGET_VOICE_CHANNEL_ID) return null;
@@ -154,7 +158,7 @@ async function playTextToSpeech(text: string) {
 }
 
 // ==========================================
-// 2. الأحداث والتفاعل مع الأوامر
+// 3. الأحداث والتفاعل مع الأوامر
 // ==========================================
 client.once('ready', async () => {
     console.log(`🤖 تم تسجيل الدخول كـ ${client.user?.tag}`);
@@ -175,23 +179,26 @@ client.on('interactionCreate', async (interaction) => {
     const { commandName } = interaction;
 
     if (commandName === 'download') {
-        // تأجيل الرد فوراً لتفادي خطأ "The application did not respond"
+        // تأجيل الرد فوراً لتجنب خطأ "The application did not respond"
         await interaction.deferReply();
-
         const url = interaction.options.getString('url', true);
 
         try {
+            if (ytdl.validateURL(url)) {
+                const stream = ytdl(url, { filter: 'audioandvideo', quality: 'lowest' });
+                const attachment = new AttachmentBuilder(stream, { name: 'video.mp4' });
+                await interaction.editReply({ content: '🎬 تم التحميل بنجاح:', files: [attachment] });
+                return;
+            }
+
             const streamInfo = await play.stream(url);
             const attachment = new AttachmentBuilder(streamInfo.stream, { name: 'video.mp4' });
+            await interaction.editReply({ content: '🎬 تم التحميل بنجاح:', files: [attachment] });
 
-            await interaction.editReply({
-                content: '🎬 تم تحميل المقطع بنجاح:',
-                files: [attachment]
-            });
         } catch (error) {
             console.error('Download error:', error);
             await interaction.editReply({
-                content: '❌ تعذر تحميل المقطع. تأكد من أن الرابط مباشر وصحيح وأن حجم المقطع يتوافق مع حدود الديسكورد.'
+                content: '❌ فشل التحميل. إما أن الحجم كبير جداً ومكلف أو الرابط غير مدعوم.'
             });
         }
     }
@@ -280,6 +287,9 @@ client.on('voiceStateUpdate', (oldState, newState) => {
     }
 });
 
+// ==========================================
+// 4. خادم HTTP لإبقاء Render يعطي حالة Live
+// ==========================================
 const PORT = process.env.PORT || 10000;
 http.createServer((_req, res) => {
     res.writeHead(200, { 'Content-Type': 'text/plain' });
