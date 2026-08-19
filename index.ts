@@ -6,7 +6,8 @@ import {
     SlashCommandBuilder, 
     TextChannel,
     EmbedBuilder,
-    MessageFlags
+    MessageFlags,
+    AttachmentBuilder
 } from 'discord.js';
 import { 
     joinVoiceChannel, 
@@ -17,6 +18,9 @@ import {
     entersState
 } from '@discordjs/voice';
 import http from 'http';
+import axios from 'axios';
+// @ts-ignore
+import tikwm from 'tikwm-scraper';
 
 const BOT_TOKEN = process.env.DISCORD_BOT_TOKEN || '';
 const CLIENT_ID = process.env.DISCORD_CLIENT_ID || '';
@@ -60,10 +64,10 @@ const commands = [
                 .setRequired(true)),
     new SlashCommandBuilder()
         .setName('download')
-        .setDescription('تشغيل وتحميل المقطع في الشات فوراً')
+        .setDescription('تحميل المقطع وإرفاقه بشكل مباشر كملف فيديو')
         .addStringOption(option =>
             option.setName('url')
-                .setDescription('رابط المقطع (TikTok / Instagram / YouTube)')
+                .setDescription('رابط مقطع TikTok')
                 .setRequired(true)),
     new SlashCommandBuilder()
         .setName('status')
@@ -176,21 +180,37 @@ client.on('interactionCreate', async (interaction) => {
     const { commandName } = interaction;
 
     if (commandName === 'download') {
-        let inputUrl = interaction.options.getString('url', true).trim();
-        let formattedUrl = inputUrl;
+        await interaction.deferReply();
+        const url = interaction.options.getString('url', true);
 
-        // تحويل روابط المنصات لشبكات الـ Embed المباشرة لضمان التشغيل 100% بدون حظر
-        if (inputUrl.includes('tiktok.com')) {
-            formattedUrl = inputUrl.replace('tiktok.com', 'vxtiktok.com');
-        } else if (inputUrl.includes('instagram.com')) {
-            formattedUrl = inputUrl.replace('instagram.com', 'ddinstagram.com');
-        } else if (inputUrl.includes('twitter.com') || inputUrl.includes('x.com')) {
-            formattedUrl = inputUrl.replace('twitter.com', 'fxtwitter.com').replace('x.com', 'fixupx.com');
+        try {
+            // سحب بيانات المقطع عبر TikWM
+            const data = await tikwm(url);
+            const playUrl = data?.data?.play;
+
+            if (!playUrl) {
+                throw new Error('لم يتم العثور على رابط فيديو مباشر');
+            }
+
+            // تحميل المقطع كـ Buffer
+            const videoBuffer = await axios.get(playUrl, {
+                responseType: 'arraybuffer'
+            });
+
+            const attachment = new AttachmentBuilder(Buffer.from(videoBuffer.data), { name: 'video.mp4' });
+
+            // إرسال المقطع كملف مباشر في الشات (مثل الصورة الثانية)
+            await interaction.editReply({
+                content: `🎬 **تم التحميل بنجاح بواسطة ${interaction.user.username}**`,
+                files: [attachment]
+            });
+
+        } catch (error: any) {
+            console.error('Download error:', error?.message || error);
+            await interaction.editReply({
+                content: '❌ تعذر استخراج وإرفاق المقطع. قد يكون حجم الفيديو أكبر من المسموح للرفع في ديسكورد (10MB).'
+            });
         }
-
-        await interaction.reply({
-            content: `🎬 **المقطع جاهز للتشغيل والتحميل:**\n${formattedUrl}`
-        });
     }
     else if (commandName === 'chat-toggle') {
         isChatRespondingEnabled = !isChatRespondingEnabled;
