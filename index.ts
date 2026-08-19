@@ -19,6 +19,7 @@ import {
 } from '@discordjs/voice';
 import http from 'http';
 import axios from 'axios';
+import { Tiktok } from '@tobyg74/tiktok-api-dl';
 
 const BOT_TOKEN = process.env.DISCORD_BOT_TOKEN || '';
 const CLIENT_ID = process.env.DISCORD_CLIENT_ID || '';
@@ -182,30 +183,27 @@ client.on('interactionCreate', async (interaction) => {
         const url = interaction.options.getString('url', true);
 
         try {
-            // 1. طلب الرابط المباشر للمقطع عبر Cobalt API
-            const cobaltRes = await axios.post('https://api.cobalt.tools/api/json', {
-                url: url,
-                videoQuality: '720',
-                downloadMode: 'auto'
-            }, {
-                headers: {
-                    'Accept': 'application/json',
-                    'Content-Type': 'application/json'
-                },
-                timeout: 10000
-            });
+            // 1. استخراج بيانات المقطع عبر المكتبة المخصصة
+            const result = await Tiktok(url, { version: 'v1' });
 
-            const directVideoUrl = cobaltRes.data?.url;
+            if (result.status !== 'success' || !result.result) {
+                throw new Error('فشل في استخراج المقطع من TikTok');
+            }
 
-            if (!directVideoUrl) {
-                throw new Error('فشل في جلب رابط المقطع من Cobalt');
+            // استخدام رابط المقطع بدون علامة مائية
+            const videoUrl = Array.isArray(result.result.video) 
+                ? result.result.video[0] 
+                : result.result.video;
+
+            if (!videoUrl) {
+                throw new Error('لم يتم العثور على رابط المقطع');
             }
 
             // 2. تحميل الفيديو كـ Buffer
-            const videoBuffer = await axios.get(directVideoUrl, {
+            const videoBuffer = await axios.get(videoUrl, {
                 responseType: 'arraybuffer',
                 headers: {
-                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
                 },
                 timeout: 20000
             });
@@ -226,7 +224,7 @@ client.on('interactionCreate', async (interaction) => {
             });
 
         } catch (error: any) {
-            console.error('Download error:', error?.response?.data || error?.message || error);
+            console.error('Download error:', error?.message || error);
             await interaction.editReply({
                 content: '❌ تعذر استخراج وإرفاق المقطع. تأكد من صحة الرابط وأن الحساب ليس خاصاً.'
             });
