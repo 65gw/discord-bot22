@@ -20,7 +20,7 @@ import {
 import http from 'http';
 import axios from 'axios';
 
-// استدعاء المكتبة بنمط CommonJS لتفادي خطأ TS2305
+// استدعاء المكتبة بنمط CommonJS
 const tiktok = require('@tobyg74/tiktok-api-dl');
 
 const BOT_TOKEN = process.env.DISCORD_BOT_TOKEN || '';
@@ -185,7 +185,7 @@ client.on('interactionCreate', async (interaction) => {
         const url = interaction.options.getString('url', true);
 
         try {
-            // المرحلة 1: استخراج بيانات المقطع عبر Downloader
+            // المرحلة 1: جلب بيانات المقطع
             let result;
             try {
                 result = await tiktok.Downloader(url, { version: 'v1' });
@@ -201,61 +201,69 @@ client.on('interactionCreate', async (interaction) => {
                 throw new Error('لم يتم العثور على المقطع. تأكد من صحة الرابط أو الحساب.');
             }
 
-            // جمع كافة الروابط المتاحة للمقطع كقائمة خيارات بديلة لتجنب حظر 403
-            const candidateUrls: string[] = [];
+            const data = result.result;
+
+            // استخراج روابط الفيديو المباشرة حصراً وتجاهل صور الغلاف (Thumbnails / Avatars)
+            const videoUrls: string[] = [];
             
-            const extractAllUrls = (obj: any) => {
+            const extractVideos = (obj: any, keyName: string = '') => {
                 if (!obj) return;
+                // استبعاد مفاتيح صور الغلاف والصور التعريفية
+                if (keyName.toLowerCase().includes('cover') || keyName.toLowerCase().includes('avatar') || keyName.toLowerCase().includes('dynamic')) {
+                    return;
+                }
+
                 if (typeof obj === 'string' && obj.startsWith('http')) {
-                    candidateUrls.push(obj);
+                    // الاستبعاد حسب الامتداد للتأكد أنه ليس ملف صورة
+                    if (!obj.includes('.jpeg') && !obj.includes('.jpg') && !obj.includes('.png') && !obj.includes('.webp')) {
+                        videoUrls.push(obj);
+                    }
                 } else if (Array.isArray(obj)) {
-                    obj.forEach(extractAllUrls);
+                    obj.forEach(item => extractVideos(item, keyName));
                 } else if (typeof obj === 'object') {
                     for (const key in obj) {
-                        extractAllUrls(obj[key]);
+                        extractVideos(obj[key], key);
                     }
                 }
             };
 
-            extractAllUrls(result.result);
+            extractVideos(data);
 
-            if (candidateUrls.length === 0) {
-                throw new Error('تعذر العثور على أي رابط تحميل مباشر للمقطع.');
+            const uniqueVideoUrls = [...new Set(videoUrls)];
+
+            if (uniqueVideoUrls.length === 0) {
+                throw new Error('تعذر العثور على رابط فيديو صريح (قد يكون المنشور عبارة عن صور فقط).');
             }
 
-            // إزالة التكرار من قائمة الروابط
-            const uniqueUrls = [...new Set(candidateUrls)];
-
-            // المرحلة 2: محاولة التنزيل المباشر بطلب محاكي للمتصفح عبر الروابط البديلة
+            // المرحلة 2: تنزيل ملف الفيديو والتأكد من الحجم
             let videoBuffer: Buffer | null = null;
             let lastErrorMsg = '';
 
-            for (const targetUrl of uniqueUrls) {
+            for (const targetUrl of uniqueVideoUrls) {
                 try {
                     const response = await axios.get(targetUrl, {
                         responseType: 'arraybuffer',
                         headers: {
                             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
-                            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
-                            'Accept-Language': 'en-US,en;q=0.9',
-                            'Referer': 'https://www.tiktok.com/',
-                            'Range': 'bytes=0-'
+                            'Accept': '*/*',
+                            'Referer': 'https://www.tiktok.com/'
                         },
-                        timeout: 20000
+                        timeout: 25000
                     });
 
-                    if (response.data && response.data.byteLength > 0) {
+                    // اشتراط أن يتجاوز الحجم 100KB للتأكد من أنه ملف فيديو حقيقي وليس ملف صورة صغيرة
+                    if (response.data && response.data.byteLength > 100000) {
                         videoBuffer = Buffer.from(response.data);
-                        break; // نجاح التحميل
+                        break;
                     }
                 } catch (err: any) {
                     lastErrorMsg = err?.response?.status ? `HTTP ${err.response.status}` : err?.message || 'Unknown Error';
-                    continue; // تجربة الرابط التالي فوراً في حال ظهور 403 أو خطأ في السيرفر الأول
+                    continue;
                 }
             }
 
             if (!videoBuffer) {
-                throw new Error(`فشل تنزيل ملف الفيديو من السيرفرات المتاحة (${lastErrorMsg}). قد يكون السيرفر قام بحظر الطلبات المؤقتة (Rate Limit).`);
+                throw new Error(`تعذر تنزيل الفيديو (${lastErrorMsg}).`);
             }
 
             // المرحلة 3: التحقق من الحجم لمطابقة حد ديسكورد (25MB)
