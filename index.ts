@@ -20,9 +20,6 @@ import {
 import http from 'http';
 import axios from 'axios';
 
-// استدعاء المكتبة بنمط CommonJS
-const tiktok = require('@tobyg74/tiktok-api-dl');
-
 const BOT_TOKEN = process.env.DISCORD_BOT_TOKEN || '';
 const CLIENT_ID = process.env.DISCORD_CLIENT_ID || '';
 const LOG_CHANNEL_ID = process.env.LOG_CHANNEL_ID || '';
@@ -185,42 +182,32 @@ client.on('interactionCreate', async (interaction) => {
         const url = interaction.options.getString('url', true);
 
         try {
-            // المرحلة 1: جلب بيانات المقطع
-            let result;
-            try {
-                result = await tiktok.Downloader(url, { version: 'v1' });
-            } catch (err: any) {
-                try {
-                    result = await tiktok.Downloader(url, { version: 'v2' });
-                } catch (errV2: any) {
-                    throw new Error(`فشل الاتصال بـ TikTok API: ${err?.message || 'خطأ في الاستجابة'}`);
-                }
+            // استخدام Tikwm API المباشر بطلب HTTP مباشر لتفادي الاعتماد على مكتبات خارجية
+            const apiRes = await axios.get(`https://www.tikwm.com/api/?url=${encodeURIComponent(url)}`, {
+                headers: {
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36'
+                },
+                timeout: 15000
+            });
+
+            if (!apiRes.data || apiRes.data.code !== 0 || !apiRes.data.data) {
+                throw new Error('فشل جلب المقطع، تأكد من صحة الرابط.');
             }
 
-            if (!result || result.status !== 'success' || !result.result) {
-                throw new Error('لم يتم العثور على المقطع. تأكد من صحة الرابط أو الحساب.');
+            const videoData = apiRes.data.data;
+            
+            // جلب رابط الفيديو (بدون علامة مائية)
+            let videoDirectUrl = videoData.play;
+            if (videoDirectUrl && !videoDirectUrl.startsWith('http')) {
+                videoDirectUrl = `https://www.tikwm.com${videoDirectUrl}`;
             }
 
-            const data = result.result;
-
-            // تحديد الروابط بدقة واستخراج أولوية رابط الفيديو بدون علامة مائية
-            let directUrl: string | null = null;
-            if (data.video && typeof data.video === 'string') {
-                directUrl = data.video;
-            } else if (data.video && Array.isArray(data.video) && data.video.length > 0) {
-                directUrl = data.video[0];
-            } else if (data.noWatermark) {
-                directUrl = typeof data.noWatermark === 'string' ? data.noWatermark : data.noWatermark[0];
-            } else if (data.watermark) {
-                directUrl = typeof data.watermark === 'string' ? data.watermark : data.watermark[0];
+            if (!videoDirectUrl) {
+                throw new Error('لم يتم العثور على رابط فيديو صالح.');
             }
 
-            if (!directUrl) {
-                throw new Error('تعذر تحديد رابط مباشر للمقطع.');
-            }
-
-            // المرحلة 2: تنزيل الفيديو كـ Buffer
-            const response = await axios.get(directUrl, {
+            // تنزيل ملف الفيديو كـ Buffer
+            const videoBufferRes = await axios.get(videoDirectUrl, {
                 responseType: 'arraybuffer',
                 headers: {
                     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
@@ -229,24 +216,19 @@ client.on('interactionCreate', async (interaction) => {
                 timeout: 25000
             });
 
-            const videoBuffer = Buffer.from(response.data);
+            const videoBuffer = Buffer.from(videoBufferRes.data);
 
-            // المرحلة 3: التحقق من الحجم
+            // التحقق من الحجم لمطابقة حد ديسكورد (25MB)
             const sizeInMB = (videoBuffer.length / (1024 * 1024)).toFixed(2);
             if (videoBuffer.length > 25 * 1024 * 1024) {
                 await interaction.editReply({ 
-                    content: `⚠️ حجم المقطع كبير جداً (${sizeInMB}MB) ويتجاوز حد رفع المرفقات في ديسكورد (25MB).` 
+                    content: `⚠️ حجم المقطع كبير جداً (${sizeInMB}MB) ويتجاوز حد ديسكورد (25MB).` 
                 });
                 return;
             }
 
-            // إرفاق الملف كـ video/mp4 صريح لإظهار المشغل المدمج
-            const attachment = new AttachmentBuilder(videoBuffer, { 
-                name: 'tiktok-video.mp4',
-                description: 'TikTok Video'
-            });
+            const attachment = new AttachmentBuilder(videoBuffer, { name: 'tiktok-video.mp4' });
 
-            // المرحلة 4: الإرسال المباشر
             await interaction.editReply({
                 content: `🎬 **تم التحميل بنجاح بواسطة ${interaction.user.username}**`,
                 files: [attachment]
