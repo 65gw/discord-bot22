@@ -13,7 +13,8 @@ import {
     createAudioPlayer, 
     createAudioResource, 
     VoiceConnectionStatus, 
-    getVoiceConnection
+    getVoiceConnection,
+    entersState
 } from '@discordjs/voice';
 import http from 'http';
 
@@ -82,20 +83,27 @@ async function sendLogEmbed(embed: EmbedBuilder) {
     }
 }
 
-function joinAndKeepVoice() {
+async function joinAndKeepVoice() {
     try {
-        if (!TARGET_VOICE_CHANNEL_ID) return null;
-        
-        const guild = client.guilds.cache.first();
-        if (!guild) return null;
-
-        const existingConnection = getVoiceConnection(guild.id);
-        if (existingConnection && existingConnection.joinConfig.channelId === TARGET_VOICE_CHANNEL_ID) {
-            return existingConnection;
+        if (!TARGET_VOICE_CHANNEL_ID) {
+            console.log('⚠️ لم يتم تحديد TARGET_VOICE_CHANNEL_ID في المتغيرات البيئية.');
+            return null;
         }
 
-        const voiceChannel = guild.channels.cache.get(TARGET_VOICE_CHANNEL_ID);
-        if (!voiceChannel || !voiceChannel.isVoiceBased()) return null;
+        const voiceChannel = await client.channels.fetch(TARGET_VOICE_CHANNEL_ID).catch(() => null);
+        if (!voiceChannel || !voiceChannel.isVoiceBased()) {
+            console.log('⚠️ الروم الصوتي غير موجود أو الأيدي غير صحيح.');
+            return null;
+        }
+
+        const guild = voiceChannel.guild;
+        const existingConnection = getVoiceConnection(guild.id);
+
+        if (existingConnection && existingConnection.joinConfig.channelId === TARGET_VOICE_CHANNEL_ID) {
+            if (existingConnection.state.status === VoiceConnectionStatus.Ready) {
+                return existingConnection;
+            }
+        }
 
         const connection = joinVoiceChannel({
             channelId: TARGET_VOICE_CHANNEL_ID,
@@ -107,13 +115,23 @@ function joinAndKeepVoice() {
 
         connection.subscribe(audioPlayer);
 
-        connection.on(VoiceConnectionStatus.Ready, () => {
-            console.log('🟢 البوت متصل ومستقر في الروم الصوتي.');
+        connection.on(VoiceConnectionStatus.Disconnected, async () => {
+            try {
+                await Promise.race([
+                    entersState(connection, VoiceConnectionStatus.Signalling, 5000),
+                    entersState(connection, VoiceConnectionStatus.Connecting, 5000),
+                ]);
+            } catch (e) {
+                connection.destroy();
+                setTimeout(() => joinAndKeepVoice(), 2000);
+            }
         });
 
+        console.log('🟢 تم الاتصال بالروم الصوتي بنجاح.');
         return connection;
+
     } catch (error) {
-        console.error('❌ خطأ في الاتصال الصوتي:', error);
+        console.error('❌ خطأ أثناء الانضمام للروم الصوتي:', error);
         return null;
     }
 }
@@ -121,7 +139,7 @@ function joinAndKeepVoice() {
 async function playTextToSpeech(text: string) {
     if (!isVoiceResponseEnabled) return;
     try {
-        joinAndKeepVoice();
+        await joinAndKeepVoice();
         const cleanText = text.replace(/[*_~`#]/g, '').slice(0, 200);
         const ttsUrl = `https://translate.google.com/translate_tts?ie=UTF-8&client=tw-ob&tl=ar&q=${encodeURIComponent(cleanText)}`;
         const resource = createAudioResource(ttsUrl);
@@ -135,11 +153,15 @@ client.once('ready', async () => {
     console.log(`🤖 تم تسجيل الدخول كـ ${client.user?.tag}`);
     await registerCommands();
     
-    joinAndKeepVoice();
+    // الانتظار 3 ثوانٍ حتى تكتمل جاهزية الكاش بالكامل
+    setTimeout(async () => {
+        await joinAndKeepVoice();
+    }, 3000);
 
-    setInterval(() => {
-        joinAndKeepVoice();
-    }, 30000);
+    // التحقق الدوري كل 15 ثانية لإبقاء البوت بالروم متصلاً
+    setInterval(async () => {
+        await joinAndKeepVoice();
+    }, 15000);
 });
 
 client.on('interactionCreate', async (interaction) => {
@@ -232,8 +254,7 @@ client.on('voiceStateUpdate', (oldState, newState) => {
     }
 });
 
-// خادم HTTP وهمي لمنع Render من إغلاق البوت
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 10000;
 http.createServer((_req, res) => {
     res.writeHead(200, { 'Content-Type': 'text/plain' });
     res.write("Bot is online!");
