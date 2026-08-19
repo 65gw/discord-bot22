@@ -183,26 +183,30 @@ client.on('interactionCreate', async (interaction) => {
         try {
             const response = await axios.post('https://api.cobalt.tools/api/json', {
                 url: url,
-                videoQuality: '720'
+                vQuality: '720',
+                filenamePattern: 'basic'
             }, {
                 headers: {
                     'Accept': 'application/json',
-                    'Content-Type': 'application/json'
+                    'Content-Type': 'application/json',
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
                 }
             });
 
-            if (response.data && response.data.url) {
+            const streamUrl = response.data?.url || response.data?.picker?.[0]?.url;
+
+            if (streamUrl) {
                 await interaction.editReply({
-                    content: `🎬 **تم استخراج المقطع بنجاح:**\n${response.data.url}`
+                    content: `🎬 **تم استخراج المقطع بنجاح:**\n${streamUrl}`
                 });
             } else {
-                throw new Error('لم يتم العثور على رابط مباشر');
+                throw new Error('No valid URL returned');
             }
 
-        } catch (error) {
-            console.error('Download error:', error);
+        } catch (error: any) {
+            console.error('Download error details:', error?.response?.data || error);
             await interaction.editReply({
-                content: '❌ تعذر استخراج المقطع. تأكد من صحة الرابط أو جرب رابطاً آخر.'
+                content: '❌ تعذر استخراج المقطع. قد يكون الرابط خاصاً، غير مدعوم، أو تتطلب المنصة تسجيل دخول.'
             });
         }
     }
