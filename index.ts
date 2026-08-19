@@ -157,6 +157,86 @@ async function playTextToSpeech(text: string) {
 }
 
 // ==========================================
+// دالة تجربة تنزيل المقطع عبر محركات متعددة لتفادي 403
+// ==========================================
+async function fetchTikTokBuffer(targetUrl: string): Promise<Buffer> {
+    const userAgent = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36';
+
+    // المصدر الأول: Cobalt API (أفضل محرك لتجاوز الحظر)
+    try {
+        const cobaltRes = await axios.post('https://api.cobalt.tools/api/json', {
+            url: targetUrl,
+            videoQuality: '720'
+        }, {
+            headers: {
+                'Accept': 'application/json',
+                'Content-Type': 'application/json',
+                'User-Agent': userAgent
+            },
+            timeout: 10000
+        });
+
+        if (cobaltRes.data && cobaltRes.data.url) {
+            const streamRes = await axios.get(cobaltRes.data.url, {
+                responseType: 'arraybuffer',
+                timeout: 20000
+            });
+            if (streamRes.data && streamRes.data.byteLength > 50000) {
+                return Buffer.from(streamRes.data);
+            }
+        }
+    } catch (e) {
+        console.log('Cobalt engine failed, trying Tikwm fallback...');
+    }
+
+    // المصدر الثاني: Tikwm المباشر
+    try {
+        const tikwmRes = await axios.get(`https://www.tikwm.com/api/?url=${encodeURIComponent(targetUrl)}`, {
+            headers: { 'User-Agent': userAgent },
+            timeout: 10000
+        });
+
+        if (tikwmRes.data && tikwmRes.data.code === 0 && tikwmRes.data.data) {
+            const videoData = tikwmRes.data.data;
+            const playUrl = videoData.play.startsWith('http') ? videoData.play : `https://www.tikwm.com${videoData.play}`;
+
+            const fileRes = await axios.get(playUrl, {
+                responseType: 'arraybuffer',
+                headers: {
+                    'User-Agent': userAgent,
+                    'Referer': 'https://www.tikwm.com/'
+                },
+                timeout: 20000
+            });
+
+            if (fileRes.data && fileRes.data.byteLength > 50000) {
+                return Buffer.from(fileRes.data);
+            }
+        }
+    } catch (e) {
+        console.log('Tikwm engine failed, trying Loli API fallback...');
+    }
+
+    // المصدر الثالث: Loli TikTok API
+    const loliRes = await axios.get(`https://api.lolihuman.xyz/api/tiktok?apikey=free&url=${encodeURIComponent(targetUrl)}`, {
+        headers: { 'User-Agent': userAgent },
+        timeout: 10000
+    }).catch(() => null);
+
+    if (loliRes?.data?.result?.link) {
+        const loliBuffer = await axios.get(loliRes.data.result.link, {
+            responseType: 'arraybuffer',
+            timeout: 20000
+        });
+        if (loliBuffer.data && loliBuffer.data.byteLength > 50000) {
+            return Buffer.from(loliBuffer.data);
+        }
+    }
+
+    throw new Error('جميع السيرفرات رفضت التنزيل حالياً بسبب حظر الحماية (403). حاول مجدداً بعد قليل.');
+}
+
+// ==========================================
 // 3. الأحداث والتفاعل مع الأوامر
 // ==========================================
 client.once('ready', async () => {
@@ -182,43 +262,8 @@ client.on('interactionCreate', async (interaction) => {
         const url = interaction.options.getString('url', true);
 
         try {
-            // استخدام Tikwm API المباشر بطلب HTTP مباشر لتفادي الاعتماد على مكتبات خارجية
-            const apiRes = await axios.get(`https://www.tikwm.com/api/?url=${encodeURIComponent(url)}`, {
-                headers: {
-                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36'
-                },
-                timeout: 15000
-            });
+            const videoBuffer = await fetchTikTokBuffer(url);
 
-            if (!apiRes.data || apiRes.data.code !== 0 || !apiRes.data.data) {
-                throw new Error('فشل جلب المقطع، تأكد من صحة الرابط.');
-            }
-
-            const videoData = apiRes.data.data;
-            
-            // جلب رابط الفيديو (بدون علامة مائية)
-            let videoDirectUrl = videoData.play;
-            if (videoDirectUrl && !videoDirectUrl.startsWith('http')) {
-                videoDirectUrl = `https://www.tikwm.com${videoDirectUrl}`;
-            }
-
-            if (!videoDirectUrl) {
-                throw new Error('لم يتم العثور على رابط فيديو صالح.');
-            }
-
-            // تنزيل ملف الفيديو كـ Buffer
-            const videoBufferRes = await axios.get(videoDirectUrl, {
-                responseType: 'arraybuffer',
-                headers: {
-                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
-                    'Referer': 'https://www.tiktok.com/'
-                },
-                timeout: 25000
-            });
-
-            const videoBuffer = Buffer.from(videoBufferRes.data);
-
-            // التحقق من الحجم لمطابقة حد ديسكورد (25MB)
             const sizeInMB = (videoBuffer.length / (1024 * 1024)).toFixed(2);
             if (videoBuffer.length > 25 * 1024 * 1024) {
                 await interaction.editReply({ 
