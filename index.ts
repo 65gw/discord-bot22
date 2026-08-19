@@ -20,7 +20,7 @@ import {
 import http from 'http';
 import axios from 'axios';
 
-// استدعاء المكتبة بنمط CommonJS لتفادي خطأ TS2305
+// استدعاء المكتبة
 const tiktok = require('@tobyg74/tiktok-api-dl');
 
 const BOT_TOKEN = process.env.DISCORD_BOT_TOKEN || '';
@@ -185,10 +185,10 @@ client.on('interactionCreate', async (interaction) => {
         const url = interaction.options.getString('url', true);
 
         try {
-            // المرحلة 1: استخراج رابط المقطع من TikTok
+            // المرحلة 1: استخرج بيانات المقطع عبر tiktok.Downloader
             let result;
             try {
-                result = await tiktok.Tiktok(url, { version: 'v1' });
+                result = await tiktok.Downloader(url, { version: 'v1' });
             } catch (err: any) {
                 throw new Error(`خطأ في استجابة TikTok API: ${err?.message || 'تعذر الاتصال بالخادم'}`);
             }
@@ -197,9 +197,9 @@ client.on('interactionCreate', async (interaction) => {
                 throw new Error('لم يتم العثور على المقطع. تأكد من صحة الرابط وأن الحساب ليس خاصاً.');
             }
 
-            const videoUrl = Array.isArray(result.result.video) 
-                ? result.result.video[0] 
-                : result.result.video;
+            // تحديد رابط الفيديو من الاستجابة
+            const videoData = result.result.video;
+            const videoUrl = Array.isArray(videoData) ? videoData[0] : videoData;
 
             if (!videoUrl) {
                 throw new Error('فشل استخراج رابط المقطع المباشر من الاستجابة.');
@@ -222,7 +222,7 @@ client.on('interactionCreate', async (interaction) => {
 
             const buffer = Buffer.from(videoBuffer.data);
 
-            // المرحلة 3: فحص الحجم بالنسبة لحدود ديسكورد
+            // المرحلة 3: فحص حجم المقطع لمطابقة حدود ديسكورد (25MB)
             const sizeInMB = (buffer.length / (1024 * 1024)).toFixed(2);
             if (buffer.length > 25 * 1024 * 1024) {
                 await interaction.editReply({ 
@@ -233,7 +233,7 @@ client.on('interactionCreate', async (interaction) => {
 
             const attachment = new AttachmentBuilder(buffer, { name: 'tiktok-video.mp4' });
 
-            // المرحلة 4: الإرسال لرد ديسكورد
+            // المرحلة 4: الإرسال المباشر للملف
             await interaction.editReply({
                 content: `🎬 **تم التحميل بنجاح بواسطة ${interaction.user.username}**`,
                 files: [attachment]
