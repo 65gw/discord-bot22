@@ -6,8 +6,7 @@ import {
     SlashCommandBuilder, 
     TextChannel,
     EmbedBuilder,
-    MessageFlags,
-    AttachmentBuilder
+    MessageFlags
 } from 'discord.js';
 import { 
     joinVoiceChannel, 
@@ -18,8 +17,7 @@ import {
     entersState
 } from '@discordjs/voice';
 import http from 'http';
-import play from 'play-dl';
-import ytdl from '@distube/ytdl-core';
+import axios from 'axios';
 
 const BOT_TOKEN = process.env.DISCORD_BOT_TOKEN || '';
 const CLIENT_ID = process.env.DISCORD_CLIENT_ID || '';
@@ -66,7 +64,7 @@ const commands = [
         .setDescription('تحميل مقطع فيديو من الرابط')
         .addStringOption(option =>
             option.setName('url')
-                .setDescription('رابط المقطع (YouTube / TikTok / إلخ)')
+                .setDescription('رابط المقطع (YouTube / TikTok / Instagram / إلخ)')
                 .setRequired(true)),
     new SlashCommandBuilder()
         .setName('status')
@@ -78,7 +76,7 @@ async function registerCommands() {
         if (!BOT_TOKEN || !CLIENT_ID) return;
         const rest = new REST({ version: '10' }).setToken(BOT_TOKEN);
         await rest.put(Routes.applicationCommands(CLIENT_ID), { body: commands });
-        console.log('✅ تم تسجيل أوامر Slash بنجاح.');
+        console.log('✅ تم تسجيل جميع أوامر Slash بنجاح.');
     } catch (error) {
         console.error('❌ خطأ في تسجيل الأوامر:', error);
     }
@@ -179,26 +177,32 @@ client.on('interactionCreate', async (interaction) => {
     const { commandName } = interaction;
 
     if (commandName === 'download') {
-        // تأجيل الرد فوراً لتجنب خطأ "The application did not respond"
         await interaction.deferReply();
         const url = interaction.options.getString('url', true);
 
         try {
-            if (ytdl.validateURL(url)) {
-                const stream = ytdl(url, { filter: 'audioandvideo', quality: 'lowest' });
-                const attachment = new AttachmentBuilder(stream, { name: 'video.mp4' });
-                await interaction.editReply({ content: '🎬 تم التحميل بنجاح:', files: [attachment] });
-                return;
-            }
+            const response = await axios.post('https://api.cobalt.tools/api/json', {
+                url: url,
+                videoQuality: '720'
+            }, {
+                headers: {
+                    'Accept': 'application/json',
+                    'Content-Type': 'application/json'
+                }
+            });
 
-            const streamInfo = await play.stream(url);
-            const attachment = new AttachmentBuilder(streamInfo.stream, { name: 'video.mp4' });
-            await interaction.editReply({ content: '🎬 تم التحميل بنجاح:', files: [attachment] });
+            if (response.data && response.data.url) {
+                await interaction.editReply({
+                    content: `🎬 **تم استخراج المقطع بنجاح:**\n${response.data.url}`
+                });
+            } else {
+                throw new Error('لم يتم العثور على رابط مباشر');
+            }
 
         } catch (error) {
             console.error('Download error:', error);
             await interaction.editReply({
-                content: '❌ فشل التحميل. إما أن الحجم كبير جداً ومكلف أو الرابط غير مدعوم.'
+                content: '❌ تعذر استخراج المقطع. تأكد من صحة الرابط أو جرب رابطاً آخر.'
             });
         }
     }
@@ -288,7 +292,7 @@ client.on('voiceStateUpdate', (oldState, newState) => {
 });
 
 // ==========================================
-// 4. خادم HTTP لإبقاء Render يعطي حالة Live
+// 4. خادم HTTP لإبقاء Render في حالة Live
 // ==========================================
 const PORT = process.env.PORT || 10000;
 http.createServer((_req, res) => {
