@@ -15,10 +15,8 @@ import {
     VoiceConnectionStatus, 
     getVoiceConnection
 } from '@discordjs/voice';
+import http from 'http';
 
-// ==========================================
-// 1. الإعدادات والمتغيرات الأساسية
-// ==========================================
 const BOT_TOKEN = process.env.DISCORD_BOT_TOKEN || '';
 const CLIENT_ID = process.env.DISCORD_CLIENT_ID || '';
 const LOG_CHANNEL_ID = process.env.LOG_CHANNEL_ID || '';
@@ -39,9 +37,6 @@ let isChatRespondingEnabled = true;
 let isAutoTopicsEnabled = true;
 let isVoiceResponseEnabled = true;
 
-// ==========================================
-// 2. تسجيل الأوامر (Slash Commands)
-// ==========================================
 const commands = [
     new SlashCommandBuilder()
         .setName('chat-toggle')
@@ -75,9 +70,6 @@ async function registerCommands() {
     }
 }
 
-// ==========================================
-// 3. نظام إرسال اللوق (Logs)
-// ==========================================
 async function sendLogEmbed(embed: EmbedBuilder) {
     try {
         if (!LOG_CHANNEL_ID) return;
@@ -90,9 +82,6 @@ async function sendLogEmbed(embed: EmbedBuilder) {
     }
 }
 
-// ==========================================
-// 4. نظام تثبيت البوت بالروم (Permanent Stay)
-// ==========================================
 function joinAndKeepVoice() {
     try {
         if (!TARGET_VOICE_CHANNEL_ID) return null;
@@ -142,9 +131,6 @@ async function playTextToSpeech(text: string) {
     }
 }
 
-// ==========================================
-// 5. الأحداث (Events)
-// ==========================================
 client.once('ready', async () => {
     console.log(`🤖 تم تسجيل الدخول كـ ${client.user?.tag}`);
     await registerCommands();
@@ -153,7 +139,7 @@ client.once('ready', async () => {
 
     setInterval(() => {
         joinAndKeepVoice();
-    }, 30_000);
+    }, 30000);
 });
 
 client.on('interactionCreate', async (interaction) => {
@@ -244,6 +230,16 @@ client.on('voiceStateUpdate', (oldState, newState) => {
             .setTimestamp();
         sendLogEmbed(embed);
     }
+});
+
+// خادم HTTP وهمي لمنع Render من إغلاق البوت
+const PORT = process.env.PORT || 3000;
+http.createServer((_req, res) => {
+    res.writeHead(200, { 'Content-Type': 'text/plain' });
+    res.write("Bot is online!");
+    res.end();
+}).listen(PORT, () => {
+    console.log(`🌐 Web server listening on port ${PORT}`);
 });
 
 client.login(BOT_TOKEN);
