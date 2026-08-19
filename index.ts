@@ -19,8 +19,6 @@ import {
 } from '@discordjs/voice';
 import http from 'http';
 import axios from 'axios';
-// @ts-ignore
-import tikwm from 'tikwm-scraper';
 
 const BOT_TOKEN = process.env.DISCORD_BOT_TOKEN || '';
 const CLIENT_ID = process.env.DISCORD_CLIENT_ID || '';
@@ -184,31 +182,43 @@ client.on('interactionCreate', async (interaction) => {
         const url = interaction.options.getString('url', true);
 
         try {
-            // سحب بيانات المقطع عبر TikWM
-            const data = await tikwm(url);
-            const playUrl = data?.data?.play;
+            // طلب بيانات المقطع مباشرة من TikWM API
+            const response = await axios.post('https://www.tikwm.com/api/', new URLSearchParams({
+                url: url,
+                hd: '1'
+            }), {
+                headers: {
+                    'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+                }
+            });
+
+            const playUrl = response.data?.data?.play;
 
             if (!playUrl) {
                 throw new Error('لم يتم العثور على رابط فيديو مباشر');
             }
 
             // تحميل المقطع كـ Buffer
-            const videoBuffer = await axios.get(playUrl, {
-                responseType: 'arraybuffer'
+            const videoBuffer = await axios.get(`https://www.tikwm.com${playUrl}`, {
+                responseType: 'arraybuffer',
+                headers: {
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+                }
             });
 
             const attachment = new AttachmentBuilder(Buffer.from(videoBuffer.data), { name: 'video.mp4' });
 
-            // إرسال المقطع كملف مباشر في الشات (مثل الصورة الثانية)
+            // إرسال المقطع كملف مباشر مرفق
             await interaction.editReply({
                 content: `🎬 **تم التحميل بنجاح بواسطة ${interaction.user.username}**`,
                 files: [attachment]
             });
 
         } catch (error: any) {
-            console.error('Download error:', error?.message || error);
+            console.error('Download error:', error?.response?.data || error?.message || error);
             await interaction.editReply({
-                content: '❌ تعذر استخراج وإرفاق المقطع. قد يكون حجم الفيديو أكبر من المسموح للرفع في ديسكورد (10MB).'
+                content: '❌ تعذر استخراج وإرفاق المقطع. قد يكون الرابط غير صحيح أو حجم الملف يتجاوز حد ديسكورد.'
             });
         }
     }
