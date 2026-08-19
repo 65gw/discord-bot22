@@ -185,27 +185,35 @@ client.on('interactionCreate', async (interaction) => {
         const url = interaction.options.getString('url', true);
 
         try {
-            // المرحلة 1: استخرج بيانات المقطع عبر tiktok.Downloader
+            // المرحلة 1: استخراج بيانات المقطع من TikTok
             let result;
             try {
                 result = await tiktok.Downloader(url, { version: 'v1' });
             } catch (err: any) {
-                throw new Error(`خطأ في استجابة TikTok API: ${err?.message || 'تعذر الاتصال بالخادم'}`);
+                throw new Error(`فشل الاتصال بـ TikTok API: ${err?.message || 'خطأ غير معروف'}`);
             }
 
             if (!result || result.status !== 'success' || !result.result) {
-                throw new Error('لم يتم العثور على المقطع. تأكد من صحة الرابط وأن الحساب ليس خاصاً.');
+                throw new Error('لم يتم العثور على المقطع. تأكد من صحة الرابط أو الحساب.');
             }
 
-            // تحديد رابط الفيديو من الاستجابة
-            const videoData = result.result.video;
-            const videoUrl = Array.isArray(videoData) ? videoData[0] : videoData;
+            // استخراج رابط الفيديو كـ String صريح لتفادي خطأ Invalid URL
+            let videoUrlRaw = result.result.video;
+            let videoUrl: string = '';
 
-            if (!videoUrl) {
-                throw new Error('فشل استخراج رابط المقطع المباشر من الاستجابة.');
+            if (typeof videoUrlRaw === 'string') {
+                videoUrl = videoUrlRaw;
+            } else if (Array.isArray(videoUrlRaw) && videoUrlRaw.length > 0) {
+                videoUrl = typeof videoUrlRaw[0] === 'string' ? videoUrlRaw[0] : (videoUrlRaw[0]?.url || '');
+            } else if (typeof videoUrlRaw === 'object' && videoUrlRaw !== null) {
+                videoUrl = videoUrlRaw.url || videoUrlRaw.noWatermark || videoUrlRaw.watermark || Object.values(videoUrlRaw).find(val => typeof val === 'string') as string || '';
             }
 
-            // المرحلة 2: تحميل المقطع كـ Buffer
+            if (!videoUrl || typeof videoUrl !== 'string' || !videoUrl.startsWith('http')) {
+                throw new Error('تعذر استخراج رابط تحميل مباشر كـ String صريح من الاستجابة.');
+            }
+
+            // المرحلة 2: تنزيل ملف الفيديو كـ Buffer
             let videoBuffer;
             try {
                 videoBuffer = await axios.get(videoUrl, {
@@ -217,12 +225,12 @@ client.on('interactionCreate', async (interaction) => {
                     timeout: 25000
                 });
             } catch (err: any) {
-                throw new Error(`خطأ أثناء تنزيل ملف الفيديو من السيرفر (HTTP ${err?.response?.status || 'Timeout'}): ${err?.message}`);
+                throw new Error(`فشل تنزيل ملف الفيديو من سيرفر TikTok (HTTP ${err?.response?.status || 'Timeout'}): ${err?.message}`);
             }
 
             const buffer = Buffer.from(videoBuffer.data);
 
-            // المرحلة 3: فحص حجم المقطع لمطابقة حدود ديسكورد (25MB)
+            // المرحلة 3: التحقق من الحجم لمطابقة ديسكورد (25MB)
             const sizeInMB = (buffer.length / (1024 * 1024)).toFixed(2);
             if (buffer.length > 25 * 1024 * 1024) {
                 await interaction.editReply({ 
@@ -233,7 +241,7 @@ client.on('interactionCreate', async (interaction) => {
 
             const attachment = new AttachmentBuilder(buffer, { name: 'tiktok-video.mp4' });
 
-            // المرحلة 4: الإرسال المباشر للملف
+            // المرحلة 4: الإرسال المباشر
             await interaction.editReply({
                 content: `🎬 **تم التحميل بنجاح بواسطة ${interaction.user.username}**`,
                 files: [attachment]
