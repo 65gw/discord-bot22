@@ -19,7 +19,9 @@ import {
 } from '@discordjs/voice';
 import http from 'http';
 import axios from 'axios';
-import { Tiktok } from '@tobyg74/tiktok-api-dl';
+
+// استدعاء المكتبة بنمط CommonJS لتفادي خطأ TS2305
+const tiktok = require('@tobyg74/tiktok-api-dl');
 
 const BOT_TOKEN = process.env.DISCORD_BOT_TOKEN || '';
 const CLIENT_ID = process.env.DISCORD_CLIENT_ID || '';
@@ -183,50 +185,66 @@ client.on('interactionCreate', async (interaction) => {
         const url = interaction.options.getString('url', true);
 
         try {
-            // 1. استخراج بيانات المقطع عبر المكتبة المخصصة
-            const result = await Tiktok(url, { version: 'v1' });
-
-            if (result.status !== 'success' || !result.result) {
-                throw new Error('فشل في استخراج المقطع من TikTok');
+            // المرحلة 1: استخراج رابط المقطع من TikTok
+            let result;
+            try {
+                result = await tiktok.Tiktok(url, { version: 'v1' });
+            } catch (err: any) {
+                throw new Error(`خطأ في استجابة TikTok API: ${err?.message || 'تعذر الاتصال بالخادم'}`);
             }
 
-            // استخدام رابط المقطع بدون علامة مائية
+            if (!result || result.status !== 'success' || !result.result) {
+                throw new Error('لم يتم العثور على المقطع. تأكد من صحة الرابط وأن الحساب ليس خاصاً.');
+            }
+
             const videoUrl = Array.isArray(result.result.video) 
                 ? result.result.video[0] 
                 : result.result.video;
 
             if (!videoUrl) {
-                throw new Error('لم يتم العثور على رابط المقطع');
+                throw new Error('فشل استخراج رابط المقطع المباشر من الاستجابة.');
             }
 
-            // 2. تحميل الفيديو كـ Buffer
-            const videoBuffer = await axios.get(videoUrl, {
-                responseType: 'arraybuffer',
-                headers: {
-                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
-                },
-                timeout: 20000
-            });
+            // المرحلة 2: تحميل المقطع كـ Buffer
+            let videoBuffer;
+            try {
+                videoBuffer = await axios.get(videoUrl, {
+                    responseType: 'arraybuffer',
+                    headers: {
+                        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                        'Referer': 'https://www.tiktok.com/'
+                    },
+                    timeout: 25000
+                });
+            } catch (err: any) {
+                throw new Error(`خطأ أثناء تنزيل ملف الفيديو من السيرفر (HTTP ${err?.response?.status || 'Timeout'}): ${err?.message}`);
+            }
 
             const buffer = Buffer.from(videoBuffer.data);
 
+            // المرحلة 3: فحص الحجم بالنسبة لحدود ديسكورد
+            const sizeInMB = (buffer.length / (1024 * 1024)).toFixed(2);
             if (buffer.length > 25 * 1024 * 1024) {
-                await interaction.editReply({ content: '⚠️ حجم المقطع يتجاوز حد ديسكورد (25MB).' });
+                await interaction.editReply({ 
+                    content: `⚠️ حجم المقطع كبير جداً (${sizeInMB}MB) ويتجاوز حد رفع المرفقات في ديسكورد (25MB).` 
+                });
                 return;
             }
 
-            const attachment = new AttachmentBuilder(buffer, { name: 'tiktok.mp4' });
+            const attachment = new AttachmentBuilder(buffer, { name: 'tiktok-video.mp4' });
 
-            // 3. إرسال المقطع المرفق مباشر
+            // المرحلة 4: الإرسال لرد ديسكورد
             await interaction.editReply({
                 content: `🎬 **تم التحميل بنجاح بواسطة ${interaction.user.username}**`,
                 files: [attachment]
             });
 
         } catch (error: any) {
-            console.error('Download error:', error?.message || error);
+            console.error('❌ تفاصيل خطأ التنزيل:', error);
+            const detailedMessage = error?.message || 'حدث خطأ غير معروف أثناء معالجة الطلب.';
+            
             await interaction.editReply({
-                content: '❌ تعذر استخراج وإرفاق المقطع. تأكد من صحة الرابط وأن الحساب ليس خاصاً.'
+                content: `❌ **فشلت عملية التحميل:**\n\`${detailedMessage}\``
             });
         }
     }
