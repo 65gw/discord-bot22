@@ -182,52 +182,42 @@ client.on('interactionCreate', async (interaction) => {
         const url = interaction.options.getString('url', true);
 
         try {
-            // 1. طلب بيانات المقطع من TikWM مع Headers متكاملة
-            const tikwmRes = await axios({
-                method: 'post',
-                url: 'https://www.tikwm.com/api/',
-                data: new URLSearchParams({ url: url, hd: '1' }),
+            // 1. طلب الرابط المباشر للمقطع عبر Cobalt API
+            const cobaltRes = await axios.post('https://api.cobalt.tools/api/json', {
+                url: url,
+                videoQuality: '720',
+                downloadMode: 'auto'
+            }, {
                 headers: {
-                    'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
-                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
-                    'Accept': 'application/json, text/javascript, */*; q=0.01'
+                    'Accept': 'application/json',
+                    'Content-Type': 'application/json'
                 },
                 timeout: 10000
             });
 
-            const videoData = tikwmRes.data?.data;
-            let playUrl = videoData?.play;
+            const directVideoUrl = cobaltRes.data?.url;
 
-            if (!playUrl) {
-                throw new Error('فشل في جلب رابط المقطع من TikWM');
+            if (!directVideoUrl) {
+                throw new Error('فشل في جلب رابط المقطع من Cobalt');
             }
 
-            // ضمان وجود البروتوكول الكامل للرابط
-            if (!playUrl.startsWith('http')) {
-                playUrl = `https://www.tikwm.com${playUrl}`;
-            }
-
-            // 2. تحميل الفيديو كـ ArrayBuffer مع تحايل Headers
-            const videoBuffer = await axios.get(playUrl, {
+            // 2. تحميل الفيديو كـ Buffer
+            const videoBuffer = await axios.get(directVideoUrl, {
                 responseType: 'arraybuffer',
                 headers: {
-                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
-                    'Referer': 'https://www.tikwm.com/'
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
                 },
-                timeout: 15000
+                timeout: 20000
             });
 
             const buffer = Buffer.from(videoBuffer.data);
 
-            // التحقق من أن حجم الملف لا يتجاوز حد ديسكورد (25MB)
             if (buffer.length > 25 * 1024 * 1024) {
-                await interaction.editReply({
-                    content: '⚠️ حجم المقطع يتجاوز حد ديسكورد (25MB).'
-                });
+                await interaction.editReply({ content: '⚠️ حجم المقطع يتجاوز حد ديسكورد (25MB).' });
                 return;
             }
 
-            const attachment = new AttachmentBuilder(buffer, { name: 'tiktok-video.mp4' });
+            const attachment = new AttachmentBuilder(buffer, { name: 'tiktok.mp4' });
 
             // 3. إرسال المقطع المرفق مباشر
             await interaction.editReply({
@@ -236,7 +226,7 @@ client.on('interactionCreate', async (interaction) => {
             });
 
         } catch (error: any) {
-            console.error('Download Command Error:', error?.response?.data || error?.message || error);
+            console.error('Download error:', error?.response?.data || error?.message || error);
             await interaction.editReply({
                 content: '❌ تعذر استخراج وإرفاق المقطع. تأكد من صحة الرابط وأن الحساب ليس خاصاً.'
             });
