@@ -24,6 +24,7 @@ const BOT_TOKEN = process.env.DISCORD_BOT_TOKEN || '';
 const CLIENT_ID = process.env.DISCORD_CLIENT_ID || '';
 const LOG_CHANNEL_ID = process.env.LOG_CHANNEL_ID || '';
 const TARGET_VOICE_CHANNEL_ID = process.env.TARGET_VOICE_CHANNEL_ID || '';
+const RENDER_EXTERNAL_URL = process.env.RENDER_EXTERNAL_URL || ''; // Render يحفظ رابط التطبيق تلقائياً في هذا المتغير
 
 const client = new Client({
     intents: [
@@ -157,12 +158,12 @@ async function playTextToSpeech(text: string) {
 }
 
 // ==========================================
-// دالة التحميل بـ 5 خطط متتالية للتغلب على حظر 403
+// 3. نظام التنزيل بـ 5 خطط متعاقبة
 // ==========================================
 async function fetchTikTokWith5Plans(targetUrl: string): Promise<Buffer> {
     const defaultUA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36';
 
-    // 🔴 الخطة 1: Tikwm API (عبر خادم HD Proxy لتجاوز الحظر المباشر)
+    // 🔴 الخطة 1: Tikwm API
     try {
         console.log('🔄 جاري تجربة الخطة (1) - Tikwm Proxy...');
         const res1 = await axios.get(`https://www.tikwm.com/api/?url=${encodeURIComponent(targetUrl)}&hd=1`, {
@@ -194,7 +195,7 @@ async function fetchTikTokWith5Plans(targetUrl: string): Promise<Buffer> {
         console.log(`⚠️ فشلت الخطة (1): ${err.message || 'Error'}`);
     }
 
-    // 🔴 الخطة 2: Tiklydown API (محرك تنزيل مستقل)
+    // 🔴 الخطة 2: Tiklydown API
     try {
         console.log('🔄 جاري تجربة الخطة (2) - Tiklydown...');
         const res2 = await axios.get(`https://api.tiklydown.eu.org/api/download?url=${encodeURIComponent(targetUrl)}`, {
@@ -219,7 +220,7 @@ async function fetchTikTokWith5Plans(targetUrl: string): Promise<Buffer> {
         console.log(`⚠️ فشلت الخطة (2): ${err.message || 'Error'}`);
     }
 
-    // 🔴 الخطة 3: Cobalt API Public Instances
+    // 🔴 الخطة 3: Cobalt API
     try {
         console.log('🔄 جاري تجربة الخطة (3) - Cobalt Engine...');
         const res3 = await axios.post('https://api.cobalt.tools/api/json', {
@@ -251,7 +252,7 @@ async function fetchTikTokWith5Plans(targetUrl: string): Promise<Buffer> {
         console.log(`⚠️ فشلت الخطة (3): ${err.message || 'Error'}`);
     }
 
-    // 🔴 الخطة 4: SSSTik Scraping Engine
+    // 🔴 الخطة 4: SSSTik Scraping
     try {
         console.log('🔄 جاري تجربة الخطة (4) - SSSTik Direct...');
         const postData = new URLSearchParams();
@@ -292,7 +293,7 @@ async function fetchTikTokWith5Plans(targetUrl: string): Promise<Buffer> {
         console.log(`⚠️ فشلت الخطة (4): ${err.message || 'Error'}`);
     }
 
-    // 🔴 الخطة 5: Loli TikTok API Fallback
+    // 🔴 الخطة 5: Loli TikTok API
     try {
         console.log('🔄 جاري تجربة الخطة (5) - Loli Fallback...');
         const res5 = await axios.get(`https://api.lolihuman.xyz/api/tiktok?apikey=free&url=${encodeURIComponent(targetUrl)}`, {
@@ -320,7 +321,7 @@ async function fetchTikTokWith5Plans(targetUrl: string): Promise<Buffer> {
 }
 
 // ==========================================
-// 3. الأحداث والتفاعل مع الأوامر
+// 4. الأحداث والتفاعل مع الأوامر
 // ==========================================
 client.once('ready', async () => {
     console.log(`🤖 تم تسجيل الدخول كـ ${client.user?.tag}`);
@@ -345,7 +346,6 @@ client.on('interactionCreate', async (interaction) => {
         const url = interaction.options.getString('url', true);
 
         try {
-            // استدعاء دالة الخطط الخمسة
             const videoBuffer = await fetchTikTokWith5Plans(url);
 
             const sizeInMB = (videoBuffer.length / (1024 * 1024)).toFixed(2);
@@ -458,15 +458,43 @@ client.on('voiceStateUpdate', (oldState, newState) => {
 });
 
 // ==========================================
-// 4. خادم HTTP لإبقاء Render في حالة Live
+// 5. خادم HTTP + نظام الـ Keep-Alive ومنع الخمول
 // ==========================================
 const PORT = process.env.PORT || 10000;
-http.createServer((_req, res) => {
+const server = http.createServer((_req, res) => {
     res.writeHead(200, { 'Content-Type': 'text/plain' });
-    res.write("Bot is online!");
+    res.write("Bot is online and active!");
     res.end();
-}).listen(PORT, () => {
+});
+
+server.listen(PORT, () => {
     console.log(`🌐 Web server listening on port ${PORT}`);
+
+    // إرسال طلب ذاتي كل 10 دقائق منعاً لخمول السيرفر (Self-Ping Every 10 Minutes)
+    setInterval(async () => {
+        try {
+            const urlToPing = RENDER_EXTERNAL_URL || `http://localhost:${PORT}`;
+            await axios.get(urlToPing);
+            console.log('⏰ [Keep-Alive] تم إرسال نبضة تنشيط للسيرفر لمنع الخمول.');
+        } catch (err) {
+            console.log('⚠️ [Keep-Alive Ping Error]:', err instanceof Error ? err.message : err);
+        }
+    }, 10 * 60 * 1000); // 10 دقائق
+});
+
+// ==========================================
+// 6. الإمساك بإشارات إعادة التشغيل (SIGTERM)
+// ==========================================
+process.on('SIGTERM', async () => {
+    console.log('⚠️ تم استقبال إشارة إعادة التشغيل من Render...');
+    const embed = new EmbedBuilder()
+        .setColor('#f1c40f')
+        .setTitle('🔄 تنبيه: إعادة تشغيل السيرفر')
+        .setDescription('جاري إيقاف البوت مؤقتاً لإعادة التشغيل أو تحديث الكود...')
+        .setTimestamp();
+    
+    await sendLogEmbed(embed);
+    process.exit(0);
 });
 
 client.login(BOT_TOKEN);
