@@ -30,13 +30,17 @@ const MENTION_USER_ID = process.env.VIP_USER_ID || '943149586304876554';
 const TARGET_VOICE_CHANNEL_ID = process.env.TARGET_VOICE_CHANNEL_ID || '';
 const RENDER_EXTERNAL_URL = process.env.RENDER_EXTERNAL_URL || '';
 
+// خريطة لتتبع آخر وقت كتب فيه كل عضو (لمنع التكرار خلال 6 ساعات)
+const typingCooldowns = new Map<string, number>();
+
 const client = new Client({
     intents: [
         GatewayIntentBits.Guilds,
         GatewayIntentBits.GuildMessages,
         GatewayIntentBits.MessageContent,
         GatewayIntentBits.GuildVoiceStates,
-        GatewayIntentBits.GuildMembers
+        GatewayIntentBits.GuildMembers,
+        GatewayIntentBits.GuildMessageTyping
     ]
 });
 
@@ -172,7 +176,6 @@ async function playTextToSpeech(text: string) {
 async function fetchTikTokWith5Plans(targetUrl: string): Promise<Buffer> {
     const defaultUA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36';
 
-    // الخطة 1: Tikwm
     try {
         const res1 = await axios.get(`https://www.tikwm.com/api/?url=${encodeURIComponent(targetUrl)}&hd=1`, {
             headers: { 'User-Agent': defaultUA },
@@ -200,7 +203,6 @@ async function fetchTikTokWith5Plans(targetUrl: string): Promise<Buffer> {
         }
     } catch (err) {}
 
-    // الخطة 2: Tiklydown
     try {
         const res2 = await axios.get(`https://api.tiklydown.eu.org/api/download?url=${encodeURIComponent(targetUrl)}`, {
             headers: { 'User-Agent': defaultUA },
@@ -221,7 +223,6 @@ async function fetchTikTokWith5Plans(targetUrl: string): Promise<Buffer> {
         }
     } catch (err) {}
 
-    // الخطة 3: Cobalt
     try {
         const res3 = await axios.post('https://api.cobalt.tools/api/json', {
             url: targetUrl,
@@ -249,7 +250,6 @@ async function fetchTikTokWith5Plans(targetUrl: string): Promise<Buffer> {
         }
     } catch (err) {}
 
-    // الخطة 4: SSSTik
     try {
         const postData = new URLSearchParams();
         postData.append('id', targetUrl);
@@ -286,7 +286,6 @@ async function fetchTikTokWith5Plans(targetUrl: string): Promise<Buffer> {
         }
     } catch (err) {}
 
-    // الخطة 5: Loli API
     try {
         const res5 = await axios.get(`https://api.lolihuman.xyz/api/tiktok?apikey=free&url=${encodeURIComponent(targetUrl)}`, {
             headers: { 'User-Agent': defaultUA },
@@ -306,17 +305,16 @@ async function fetchTikTokWith5Plans(targetUrl: string): Promise<Buffer> {
         }
     } catch (err) {}
 
-    throw new Error('فشلت جميع الخطط الخمسة في تنزيل المقطع. قد يكون المقطع خاصاً أو محظوراً.');
+    throw new Error('فشلت جميع الخطط الخمسة في تنزيل المقطع.');
 }
 
 // ==========================================
-// 4. الأحداث والتفاعل مع الأوامر
+// 4. الأحداث وتتبع الكتابة واللوقات
 // ==========================================
 client.once('ready', async () => {
     console.log(`🤖 تم تسجيل الدخول كـ ${client.user?.tag}`);
     await registerCommands();
     
-    // إرسال تنبيه في الروم المخصص بالمنشن فور اكتمال إعادة التشغيل والبدء
     const startEmbed = new EmbedBuilder()
         .setColor('#2ecc71')
         .setTitle('🟢 اكتمال إعادة التشغيل')
@@ -332,6 +330,33 @@ client.once('ready', async () => {
     setInterval(async () => {
         await joinAndKeepVoice();
     }, 15000);
+});
+
+// 📌 لوق عند بدء الشخص بالصتابة (محدد بـ 6 ساعات لكل عضو)
+client.on('typingStart', async (typing) => {
+    if (!typing.user || typing.user.bot) return;
+
+    const userId = typing.user.id;
+    const now = Date.now();
+    const SIX_HOURS = 6 * 60 * 60 * 1000;
+
+    const lastTyped = typingCooldowns.get(userId) || 0;
+
+    if (now - lastTyped >= SIX_HOURS) {
+        typingCooldowns.set(userId, now);
+
+        const embed = new EmbedBuilder()
+            .setColor('#3498db')
+            .setAuthor({ name: `يكتب الآن - ${typing.user.tag}`, iconURL: typing.user.displayAvatarURL() })
+            .addFields(
+                { name: 'العضو', value: `${typing.user}`, inline: true },
+                { name: 'القناة', value: `<#${typing.channel.id}>`, inline: true }
+            )
+            .setFooter({ text: 'يتكرر اللوق كل 6 ساعات لنفس الشخص' })
+            .setTimestamp();
+
+        await sendLogEmbed(embed, false);
+    }
 });
 
 client.on('interactionCreate', async (interaction) => {
@@ -406,6 +431,7 @@ client.on('interactionCreate', async (interaction) => {
     }
 });
 
+// 📌 لوق حركة الرومات الصوتية (دخول / خروج / انتقال)
 client.on('voiceStateUpdate', (oldState, newState) => {
     if (newState.member?.id === client.user?.id) {
         if (!newState.channelId || newState.channelId !== TARGET_VOICE_CHANNEL_ID) {
